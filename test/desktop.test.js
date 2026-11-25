@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const test = require('node:test');
+const { activities } = require('../desktop/vision-data.json');
 
 function crc32(buffer) {
   let crc = 0xffffffff;
@@ -122,6 +123,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   const otherChannel = 'luckbot9';
   const autoReadChannel = 'travelerschosenteam';
   const postTemplarChannel = 'destiny2checkpoints';
+  const laterChannels = ['soloraidsbot', 'destinycheckpoints', 'd2chests'];
   const sentMessages = [];
   let connected = false;
   let externalFetchCalls = 0;
@@ -140,6 +142,12 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   const webpVp8 = webpFrame('VP8 ');
   const webpVp8l = webpFrame('VP8L');
   const webpVp8x = webpFrame('VP8X');
+  const bulkFrame = pngFrame(210);
+  const bulkReports = Object.entries(activities).flatMap(([activityId, activity]) => activity.encounters.map(encounter => ({
+    ...report(), activityId, activity: activity.activity, activityCode: activity.activityCode,
+    encounter: encounter.encounter, encounterCode: encounter.encounterCode
+  }))).slice(0, 28);
+  frames.set(crypto.createHash('sha256').update(bulkFrame).digest('hex'), { recognized: true, reports: bulkReports });
   frames.set(crypto.createHash('sha256').update(jpegC).digest('hex'), { recognized: true, queueLength: 4, reports: [report()] });
   for (const frame of [webpVp8, webpVp8l, webpVp8x]) frames.set(crypto.createHash('sha256').update(frame).digest('hex'), { recognized: true, queueLength: 5, reports: [report()] });
   frames.set(crypto.createHash('sha256').update(firstA).digest('hex'), { recognized: true, queueLength: 3, reports: [report()] });
@@ -165,7 +173,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     async recognizeImage(image, options) {
       recognizeCalls += 1;
       assert.equal(options.isScreenshot, options.channel !== autoReadChannel);
-      assert.ok([preferredChannel, otherChannel, autoReadChannel, postTemplarChannel, 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
+      assert.ok([preferredChannel, otherChannel, autoReadChannel, postTemplarChannel, ...laterChannels, 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
       const key = crypto.createHash('sha256').update(image).digest('hex');
       const result = frames.get(key);
       assert.ok(result, 'the HTTP body must be the exact submitted image bytes');
@@ -220,7 +228,6 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     assert.equal(typeof desktop.makeServer, 'function');
     assert.equal(typeof desktop.scanScreen, 'function');
     assert.equal(typeof desktop.reportFreshness, 'function');
-    assert.equal(typeof desktop.latestStateReports, 'function');
 
     const freshnessNow = Date.now();
     const halfFresh = desktop.reportFreshness({ observedAt: new Date(freshnessNow - 5 * 60_000).toISOString() }, freshnessNow);
@@ -229,13 +236,6 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     assert.deepEqual([expired.fresh, expired.freshnessPercent], [false, 0]);
     const future = desktop.reportFreshness({ observedAt: new Date(freshnessNow + 5 * 60_000).toISOString() }, freshnessNow);
     assert.deepEqual([future.fresh, future.freshnessPercent], [true, 100], 'future clock skew must not exceed a full freshness bar');
-
-    const manyReports = Array.from({ length: 120 }, (_, index) => ({
-      id: String(index), login: `channel_${index % 4}`, observedAt: new Date(freshnessNow - index * 1000).toISOString()
-    }));
-    const visibleReports = desktop.latestStateReports(manyReports, 12);
-    assert.equal(visibleReports.length, 12);
-    assert.equal(new Set(visibleReports.map(item => item.login)).size, 4, 'the state window must not starve quieter channels');
 
     server = desktop.makeServer();
     await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', error => error ? reject(error) : resolve()));
@@ -443,6 +443,31 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     state = JSON.parse(stateResponse.body);
     assert.equal(state.reports.find(item => item.login === preferredChannel).status, 'candidate', 'an unrecognized new frame demotes that channel confirmation');
     assert.equal(state.reports.find(item => item.login === otherChannel).status, 'available', 'an unrecognized frame on one channel must not demote another');
+
+    const earlyReport = state.reports.find(item => item.login === autoReadChannel);
+    assert.equal(earlyReport.status, 'available');
+    for (const login of laterChannels) {
+      assert.equal((await imageRequest(port, login, bulkFrame, { cookie, origin })).status, 200);
+    }
+    const readState = async () => JSON.parse((await httpRequest(port, '/api/state', 'GET', { Cookie: cookie })).body);
+    const fullState = await readState();
+    assert.ok(fullState.reports.length > 80, 'later channels must not truncate recognized records from the list');
+    assert.deepEqual(fullState.reportSummary, { total: fullState.reports.length, displayed: fullState.reports.length, hidden: 0 });
+    assert.ok(state.reports.every(previous => fullState.reports.some(item => item.id === previous.id)), 'reports visible earlier in the read must remain listed');
+
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11 * 60_000;
+    try {
+      assert.equal((await imageRequest(port, otherChannel, firstB, { cookie, origin })).status, 200);
+      const finished = await readState();
+      const expiredEarlyReport = finished.reports.find(item => item.id === earlyReport.id);
+      assert.deepEqual([expiredEarlyReport.status, expiredEarlyReport.freshnessPercent, expiredEarlyReport.canRequest], ['candidate', 0, false],
+        'an early observation must stay visible after later scans even when its confirmation has expired');
+      assert.ok(finished.reports.find(item => item.id === bReport.id).freshnessPercent > 0);
+      assert.equal((await postJson('/api/queue/preview', { reportId: earlyReport.id, bungieId })).status, 409);
+    } finally {
+      Date.now = realNow;
+    }
 
     for (const oldRoute of ['/api/auth/begin', '/api/auth/status', '/api/auth/logout', '/api/send-preview', '/api/send', '/api/refresh']) {
       const response = await httpRequest(port, oldRoute, 'POST', { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, Buffer.from('{}'));

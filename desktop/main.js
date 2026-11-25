@@ -19,8 +19,8 @@ const UI_ROOT = path.join(__dirname, 'ui');
 const DATA_ROOT = process.env.D2_DATA_DIR || path.join(process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || process.cwd(), 'AppData', 'Local'), 'D2Checkpoint');
 const STATE_FILE = path.join(DATA_ROOT, 'state.json');
 const REPORT_TTL_MS = 10 * 60 * 1000;
+const REPORT_HISTORY_LIMIT = 500;
 const FRAME_CONFIRM_TTL_MS = 5 * 60 * 1000;
-const STATE_REPORT_LIMIT = 80;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const SCAN_INTERVAL_MS = 60_000;
 const SECURITY_HEADERS = {
@@ -57,7 +57,7 @@ try {
     settings.watchedChannels = [...new Set(savedChannels.map(cleanLogin).filter(Boolean))].slice(0, 100);
     settings.autoProgressRead = saved.settings?.autoProgressRead === true;
     const currentSchema = saved.schema === 2;
-    reports = currentSchema && Array.isArray(saved.reports) ? saved.reports.slice(0, 500).filter(report => report && typeof report === 'object').map(report => ({
+    reports = currentSchema && Array.isArray(saved.reports) ? retainRecentReports(saved.reports.filter(report => report && typeof report === 'object')).map(report => ({
       ...report, ...checkpointNames(report.activityId, report.encounterCode), status: 'candidate', confidence: '等待两张新画面确认'
     })) : [];
     for (const item of currentSchema && Array.isArray(saved.channels) ? saved.channels.slice(0, 100) : []) {
@@ -79,7 +79,7 @@ function persist() {
   const serializableChannels = [...channels.values()].map(({ login, displayName, queueLength, queueLengthAt, queueStatus, queueStatusAt }) => ({
     login, displayName, queueLength, queueLengthAt, queueStatus, queueStatusAt
   }));
-  const data = JSON.stringify({ schema: 2, settings, reports: reports.slice(-500), channels: serializableChannels, savedAt: new Date().toISOString() });
+  const data = JSON.stringify({ schema: 2, settings, reports, channels: serializableChannels, savedAt: new Date().toISOString() });
   const task = dbWriteChain.catch(() => {}).then(() => fs.promises.writeFile(`${STATE_FILE}.tmp`, data, { mode: 0o600 }).then(() => fs.promises.rename(`${STATE_FILE}.tmp`, STATE_FILE)));
   dbWriteChain = task.catch(() => {});
   return task;
@@ -268,25 +268,10 @@ function freshnessFor(value, now = Date.now(), ttlMs = REPORT_TTL_MS) {
 }
 function reportFreshness(report, now = Date.now()) { return freshnessFor(report?.observedAt, now); }
 function reportFresh(report, now = Date.now()) { return reportFreshness(report, now).fresh; }
-function latestStateReports(items, limit = STATE_REPORT_LIMIT) {
-  const ordered = [...items].sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
-  const byChannel = new Map();
-  for (const report of ordered) {
-    if (!byChannel.has(report.login)) byChannel.set(report.login, []);
-    byChannel.get(report.login).push(report);
-  }
-  const selected = [];
-  for (let index = 0; selected.length < limit; index += 1) {
-    let added = false;
-    for (const group of byChannel.values()) {
-      if (!group[index]) continue;
-      selected.push(group[index]);
-      added = true;
-      if (selected.length >= limit) break;
-    }
-    if (!added) break;
-  }
-  return selected.sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
+function retainRecentReports(items) {
+  if (items.length <= REPORT_HISTORY_LIMIT) return items;
+  items.sort((a, b) => (Date.parse(a.observedAt) || 0) - (Date.parse(b.observedAt) || 0));
+  return items.slice(-REPORT_HISTORY_LIMIT);
 }
 function ensureChannel(login, protectedChannels = settings.watchedChannels) {
   let channel = channels.get(login);
@@ -469,24 +454,22 @@ async function sendQueueRequest(body, viaWebPage = false) {
 }
 function buildState() {
   const now = Date.now();
-  const recentReports = [];
-  for (const report of reports) {
+  const stateReports = reports.map(report => {
     const freshness = reportFreshness(report, now);
-    if (!freshness.fresh) continue;
     const channel = channels.get(report.login);
     const current = channel?.lastFrameAt && now - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS && sourceIsCurrent(report);
     const queue = queueFor(channel, now);
     const item = { ...report, ...queue, expiresAt: freshness.expiresAt, freshnessPercent: freshness.freshnessPercent,
       encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
-    if (!current && report.status === 'available') recentReports.push({ ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false });
-    else recentReports.push({ ...item, canRequest: report.status === 'available' && queue.queueStatus !== 'closed' && canRequest(report) });
-  }
-  const visibleReports = latestStateReports(recentReports);
+    if (!freshness.fresh) return { ...item, status: 'candidate', confidence: '进度已过期，请重新读取频道', canRequest: false };
+    if (!current && report.status === 'available') return { ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false };
+    return { ...item, canRequest: report.status === 'available' && queue.queueStatus !== 'closed' && canRequest(report) };
+  }).sort((a, b) => (Date.parse(b.observedAt) || 0) - (Date.parse(a.observedAt) || 0));
   const account = twitch.status();
   return { app: { state: lastError ? 'error' : 'ready', message: lastError || '本机检查点工作台已就绪', error: lastError, lastScanAt },
     settings, streams: [...channels.values()].map(summarizeChannel).sort((a, b) => Number(b.watching) - Number(a.watching) || (b.lastFrameAt || '').localeCompare(a.lastFrameAt || '')),
-    reports: visibleReports,
-    reportSummary: { total: recentReports.length, displayed: visibleReports.length, hidden: Math.max(0, recentReports.length - visibleReports.length) },
+    reports: stateReports,
+    reportSummary: { total: stateReports.length, displayed: stateReports.length, hidden: 0 },
     recommendations: rankRecommendations().slice(0, 12),
     twitch: account,
     monitor: { ...monitor, channels: monitoredLogins().map(login => ({ login, ...streamStatus.get(login) })) },
@@ -513,7 +496,7 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
     reports: reports.filter(report => report.login === login && reportFresh(report)), message: '画面没有变化；等待播放画面更新后再识别。' };
   const result = await recognizeImage(image, { channel: login, isScreenshot });
   if (!active()) return { login, duplicate: false, recognized: false };
-  const observedAt = new Date().toISOString(); const now = Date.now();
+  const now = Date.now(); const observedAt = new Date(now).toISOString();
   channel.lastFingerprint = fingerprint; channel.lastFrameAt = observedAt; channel.watching = true;
   if (validQueueLength(result?.queueLength)) {
     channel.queueLength = result.queueLength;
@@ -554,7 +537,7 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
     channel.previousKeys.clear();
   }
   channels.set(login, channel);
-  reports = reports.filter(report => now - Date.parse(report.observedAt || 0) < REPORT_TTL_MS).slice(-500);
+  reports = retainRecentReports(reports);
   lastScanAt = observedAt; lastError = '';
   await persist();
   const payload = { login, duplicate: false, recognized: Boolean(result?.recognized), ...queue,
@@ -662,4 +645,4 @@ if (require.main === module) {
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   setInterval(() => void refreshMonitor(), SCAN_INTERVAL_MS).unref();
 }
-module.exports = { makeServer, scanScreen, buildState, estimateFor, persist, reportFreshness, latestStateReports };
+module.exports = { makeServer, scanScreen, buildState, estimateFor, persist, reportFreshness };

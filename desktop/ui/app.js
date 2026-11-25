@@ -2,6 +2,8 @@
 
 const model = {
   state: null,
+  stateRequestId: 0,
+  appliedStateRequestId: 0,
   currentLogin: '',
   toastTimer: null,
   lastRequestId: null,
@@ -180,11 +182,13 @@ function renderReports(reports) {
   }
   const ordered = [...reports].sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
   ui.reportList.innerHTML = ordered.map(report => {
-    const confirmed = report.status === 'available';
+    const expired = report.freshnessPercent === 0;
+    const confirmed = !expired && report.status === 'available';
+    const statusLabel = expired ? '已过期 · 待重新确认' : confirmed ? '连续画面确认' : '候选 · 请复核';
     const translationNote = report.officialName === false ? ' · 官方译名待核实' : '';
     const commandNote = confirmed && !report.canRequest && report.queueStatus !== 'closed' ? ' · 指令待核实' : '';
     return `<article class="report-card">
-      <div class="report-status ${confirmed ? 'verified' : 'candidate'}"><i></i>${confirmed ? '连续画面确认' : '候选 · 请复核'}</div>
+      <div class="report-status ${confirmed ? 'verified' : 'candidate'}"><i></i>${statusLabel}</div>
       <div class="report-main"><b>${escapeHtml(reportActivity(report))}</b><small>${escapeHtml(reportEncounter(report))}</small><small class="report-source">${escapeHtml(report.displayName || report.login || 'Twitch 频道')} · ${escapeHtml(fmtTime(report.observedAt))}${translationNote}${commandNote}</small></div>
       <div class="report-queue">${escapeHtml(queueLabel(report))}</div>
     </article>`;
@@ -388,8 +392,12 @@ function renderRecommendations(items) {
   ui.recommendationList.innerHTML = entries.slice(0, 10).map(item => `<article class="recommend-row"><div class="recommend-top"><b>${escapeHtml(item.displayName)}</b><span>${item.estimatedMinutes == null ? '等待未知' : `约 ${escapeHtml(item.estimatedMinutes)} 分钟`}</span></div><small>${escapeHtml(item.label)} · ${escapeHtml(queueLabel(item))}</small><small class="recommend-confidence">${escapeHtml(item.confidence || '仅本机观察，样本不足时不估时')}</small></article>`).join('');
 }
 async function loadState(silent = true) {
+  const requestId = ++model.stateRequestId;
   try {
-    model.state = await api('/api/state');
+    const state = await api('/api/state');
+    if (requestId < model.appliedStateRequestId) return;
+    model.appliedStateRequestId = requestId;
+    model.state = state;
     if (model.autoRead === null) model.autoRead = model.state.settings?.autoProgressRead === true;
     scheduleAutoProgressRead();
     renderState();
