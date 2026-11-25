@@ -9,7 +9,7 @@
   --line-soft: #272e3a;
   --text: #f0ede5;
   --muted: #aeb6c3;
-  --dim: #8d98a9;
+  --dim: #a0acbd;
   --gold: #e8c385;
   --gold-wash: rgb(232 195 133 / 9%);
   --gold-line: rgb(232 195 133 / 33%);
@@ -446,6 +446,7 @@ h1 {
   color: var(--text);
 }
 .text-input::placeholder, .text-input:disabled { color: var(--dim); }
+.text-input::placeholder { opacity: 1; }
 .text-input:focus { border-color: var(--gold); outline: none; box-shadow: 0 0 0 2px var(--gold-wash); }
 .text-input:disabled { cursor: not-allowed; }
 select.text-input { padding-right: 8px; }
@@ -941,7 +942,7 @@ select.text-input { padding-right: 8px; }
     padding: 27px;
     background-position: 76% center;
     background-image:
-      linear-gradient(90deg, rgb(20 25 36 / 92%), rgb(20 25 36 / 72%) 55%, rgb(20 25 36 / 22%)),
+      linear-gradient(90deg, rgb(20 25 36 / 92%), rgb(20 25 36 / 78%) 55%, rgb(20 25 36 / 48%)),
       linear-gradient(0deg, rgb(13 17 24 / 68%), transparent 43%),
       url("/ui/assets/orbital-watch.webp");
   }

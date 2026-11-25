@@ -657,12 +657,12 @@ internal sealed class TwitchBrowserWindow : Form
     private readonly bool _background;
     private readonly WebView2 _webView = new();
     private readonly TextBox _address = new();
-    private readonly Button _back = new();
-    private readonly Button _forward = new();
+    private readonly ToolbarButton _back = new();
+    private readonly ToolbarButton _forward = new();
     private readonly Button _reload = new();
-    private readonly Button _capture = new();
+    private readonly ToolbarButton _capture = new();
     private readonly Button _external = new();
-    private readonly CheckBox _auto = new();
+    private readonly ToolbarCheckBox _auto = new();
     private readonly Label _status = new();
     private readonly System.Windows.Forms.Timer _autoTimer = new() { Interval = 15_000 };
     private readonly System.Windows.Forms.Timer _channelTimer = new() { Interval = 1000 };
@@ -716,8 +716,10 @@ internal sealed class TwitchBrowserWindow : Form
 
         ConfigureButton(_back, "←", 36, (_, _) => { if (_webView.CoreWebView2?.CanGoBack == true) _webView.CoreWebView2.GoBack(); });
         _back.AccessibleName = "上一页";
+        _back.Enabled = false;
         ConfigureButton(_forward, "→", 36, (_, _) => { if (_webView.CoreWebView2?.CanGoForward == true) _webView.CoreWebView2.GoForward(); });
         _forward.AccessibleName = "下一页";
+        _forward.Enabled = false;
         ConfigureButton(_reload, "刷新", 56, (_, _) => _webView.CoreWebView2?.Reload());
         _address.AccessibleName = "Twitch 网页地址";
         _address.Anchor = AnchorStyles.Left | AnchorStyles.Right;
