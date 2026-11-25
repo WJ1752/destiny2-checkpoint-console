@@ -1,19 +1,23 @@
-# 命运 2 检查点本机识别工具
+# 命运 2 检查点指挥台
 
-Windows 桌面工具：在内嵌的 Twitch 官方网页中自行登录或观看公开频道，再由本机截取当前可见页面并用 Windows OCR 识别检查点。**不需要 Twitch 开发者应用、Client ID 或 API OAuth**；不发送聊天，也不读取密码/Cookie或绕过 Twitch 的登录与 2FA。
+Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查点来源，并按频道规则生成申请指令。
 
 ## 使用
 
-1. 解压完整便携包，双击 `D2Checkpoint.exe`。
-2. 在工作台输入 Twitch 频道登录名并打开页面；在 Twitch 窗口中自行登录、完成安全验证并播放频道。
-3. 确认显示的是公开频道页面且视频清晰后，点击窗口工具栏的“识别当前画面”。15 秒自动识别默认关闭；仅在确认画面适合持续识别时手动勾选启用。
-4. 在工作台查看 OCR 候选并人工核对。连续两张不同画面识别到相同进度才会标记为已确认；OCR 仍可能误读。队列估时只在本机观察到足够的队列变化样本后给出，否则显示未知。
+1. 解压完整便携包，双击 `D2Checkpoint.exe`。点击「一键读取进度」，程序会在内置 Twitch 窗口依次读取监测频道。请保持该窗口在前台。取到画面但识别结果过少时会在同一频道复查一次，工作台会汇总该频道本轮识别到的进度。
+2. 默认频道为 `d2checkpoints`、`soloraidsbot`、`luckbot9`、`destinycheckpoints`、`travelerschosenteam`、`d2chests` 和 `destiny2checkpoints`。两张不同画面都识别到同一节点后，工作台将其标为已确认。也可打开单个频道手动识别，或导入浏览器里的直播截图。
+3. 点击工作台的 Twitch 登录入口，在程序打开的 Twitch 官方网页中登录自己的账号。登录和账号验证由 Twitch 页面处理。
+4. 输入完整 Bungie ID（例如 `Guardian#1234`），选择活动节点和难度，点击“匹配最佳频道”。工作台优先比较等待估时和队列长度。在工作台确认频道和指令后点击“发送”，程序等聊天编辑器接收指令，再提交一次。是否入队以频道机器人回复为准。
 
-**隐私提醒：**截取的是 Twitch WebView 当前显示的整页，不保证只包含直播视频；网页覆盖层和聊天也可能进入截图。不要在登录、密码、验证码或账号安全验证页面截取。切换页面或离开 Twitch 窗口会停止自动识别。截图仅在本机内存中传给 OCR 处理，不写成截图文件、不发往外部服务；本机只保留 OCR 状态、频道及检查点结果等必要数据。Twitch WebView 使用单独的本地浏览器配置目录以维持用户自行进行的网页登录会话，程序不读取或导出该会话数据。
+程序内网页登录和聊天发送使用同一个 Twitch 网页会话。分发者也可通过 `D2_TWITCH_CLIENT_ID` 启用可选 API 授权，用于每分钟检查这些频道的公开直播预览。 [Twitch 应用注册](https://dev.twitch.tv/docs/authentication/register-app/) · [直播接口](https://dev.twitch.tv/docs/api/reference/streams#get-streams)
+
+名称来自 Bungie 简体中文 Manifest，活动与遭遇使用可追溯的官方条目。部分机器人自定义节点会显示译名待核实。申请功能要求相应的频道规则已核实，且进度状态仍然有效。 [Bungie Manifest](https://bungie-net.github.io/multi/operation_get_Destiny2-GetDestinyManifest.html)
+
+直播预览和手动截图在本机内存中识别。WebView2 在本机保存网页登录会话。提交申请时，指令中的 Bungie ID 会出现在所选频道的聊天中。
 
 ## 从源码运行与验证
 
-最终桌面捕获功能要求 Windows 和 Microsoft Edge WebView2 Runtime。便携包包含 Node.js，无须用户另装 Node.js。
+截图与直播预览识别要求 Windows。内嵌直播要求 Microsoft Edge WebView2 Runtime。便携包包含 Node.js。
 
 构建机需要 Windows x64、.NET 10 SDK，以及可访问 `nodejs.org` 和 NuGet；在仓库目录运行：
 
@@ -36,7 +40,8 @@ npm test
 
 ## 主要组成
 
-- `desktop/main.js`：仅监听回环地址的本地会话、画面 OCR API 与频道观察数据。
+- `desktop/main.js`：仅监听回环地址的本地会话、频道监测、进度推荐与申请。
+- `desktop/twitch.js`、`desktop/checkpoint-sources.js`：Twitch 官方接口、已核实的频道指令及其来源。
 - `desktop/vision.js`、`desktop/vision-ocr.ps1`：画面解析与本机 Windows OCR；图片通过标准输入和内存流处理。
 - `launcher/Program.cs`：Windows 托盘启动器、本机工作台和隔离的 Twitch WebView2 窗口；页面变化或失焦时停止捕获。
 - `desktop/ui/`：简体中文本机工作台。

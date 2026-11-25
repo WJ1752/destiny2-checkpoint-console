@@ -12,8 +12,10 @@
     <AssemblyName>D2Checkpoint</AssemblyName>
     <RootNamespace>D2Checkpoint.Launcher</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>checkpoint.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="checkpoint.ico" LogicalName="D2Checkpoint.Launcher.checkpoint.ico" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>
 </Project>

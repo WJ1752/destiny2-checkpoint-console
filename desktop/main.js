@@ -1,12 +1,14 @@
 'use strict';
 
-// 本机屏幕识别服务。只接收用户主动选择的 Twitch 网页可见画面，不连接 Twitch API。
+// 本机检查点工作台、Twitch 连接和画面识别。
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
-const { recognizeImage } = require('./vision');
+const { checkpointNames, recognizeImage } = require('./vision');
+const { createTwitchClient } = require('./twitch');
+const { CHANNELS, normalizeBungieId, buildQueueCommand } = require('./checkpoint-sources');
 
 const HOST = process.env.D2_HOST || '127.0.0.1';
 if (HOST !== '127.0.0.1') throw new Error('本机应用仅允许绑定 127.0.0.1。');
@@ -19,12 +21,14 @@ const STATE_FILE = path.join(DATA_ROOT, 'state.json');
 const REPORT_TTL_MS = 10 * 60 * 1000;
 const FRAME_CONFIRM_TTL_MS = 5 * 60 * 1000;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+const SCAN_INTERVAL_MS = 60_000;
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 };
-const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8' };
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.webp':'image/webp' };
+const UI_ASSETS = new Set(['app.js', 'styles.css', 'assets/orbital-watch.webp']);
 let bootstrapUsed = false;
 process.env.D2_LAUNCH_KEY = '';
 let sessionId = crypto.randomBytes(32).toString('base64url');
@@ -38,6 +42,11 @@ let lastError = '';
 let dbWriteChain = Promise.resolve();
 const activeScans = new Set();
 let activeImageJobs = 0;
+const twitch = createTwitchClient({ clientId: process.env.D2_TWITCH_CLIENT_ID });
+const streamStatus = new Map();
+const queuePreviews = new Map();
+const monitor = { running: false, lastScanAt: null, error: '' };
+let monitorGeneration = 0;
 
 fs.mkdirSync(DATA_ROOT, { recursive: true });
 try {
@@ -46,7 +55,9 @@ try {
     const savedChannels = Array.isArray(saved.settings?.watchedChannels) ? saved.settings.watchedChannels : [];
     settings.watchedChannels = [...new Set(savedChannels.map(cleanLogin).filter(Boolean))].slice(0, 100);
     const currentSchema = saved.schema === 2;
-    reports = currentSchema && Array.isArray(saved.reports) ? saved.reports.slice(0, 500).map(report => ({ ...report, status: 'candidate', confidence: '重新打开频道并识别两张不同画面后确认' })) : [];
+    reports = currentSchema && Array.isArray(saved.reports) ? saved.reports.slice(0, 500).filter(report => report && typeof report === 'object').map(report => ({
+      ...report, ...checkpointNames(report.activityId, report.encounterCode), status: 'candidate', confidence: '等待两张新画面确认'
+    })) : [];
     for (const item of currentSchema && Array.isArray(saved.channels) ? saved.channels.slice(0, 100) : []) {
       const login = cleanLogin(item?.login); if (!login) continue;
       channels.set(login, { login, displayName: login, lastFrameAt: null, queueLength: Number.isFinite(item.queueLength) ? item.queueLength : null, lastFingerprint: null, previousKeys: new Set() });
@@ -104,7 +115,11 @@ async function readBody(req, cap = 64 * 1024) {
   }
   if (oversized) throw Object.assign(new Error('请求内容过大。'), { status: 413 });
   if (len === 0) return {};
-  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  try {
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Expected a JSON object');
+    return body;
+  }
   catch { throw Object.assign(new Error('请求内容不是有效 JSON。'), { status: 400 }); }
 }
 async function withImageJob(req, work) {
@@ -232,7 +247,7 @@ function cleanLogin(value) {
   const reserved = new Set(['login','signup','activate','settings','subscriptions','directory','search','downloads','privacy','p','videos','clip','clips']);
   return /^[a-z0-9_]{1,25}$/.test(login) && !reserved.has(login) ? login : '';
 }
-function reportKey(login, found) { return `${login}/${found.activityCode}/${found.encounterCode}/${found.difficultyCode}`; }
+function reportKey(login, found) { return `${login}/${found.activityId || found.activityCode}/${found.encounterCode}/${found.difficultyCode}`; }
 function reportFresh(report) { return Boolean(report && Date.now() - Date.parse(report.observedAt || 0) < REPORT_TTL_MS); }
 function ensureChannel(login, protectedChannels = settings.watchedChannels) {
   let channel = channels.get(login);
@@ -269,35 +284,157 @@ function summarizeChannel(channel) {
   const age = channel.lastFrameAt ? Date.now() - Date.parse(channel.lastFrameAt) : Infinity;
   const currentReports = reports.filter(report => report.login === channel.login && reportFresh(report));
   return { login: channel.login, displayName: channel.displayName || channel.login, lastFrameAt: channel.lastFrameAt,
-    queueLength: Number.isFinite(channel.queueLength) ? channel.queueLength : null,
+    queueLength: age < REPORT_TTL_MS && Number.isFinite(channel.queueLength) ? channel.queueLength : null,
     watching: age < 2 * 60_000, frameAgeSeconds: Number.isFinite(age) ? Math.max(0, Math.round(age / 1000)) : null,
-    reports: currentReports.slice(-20), estimate: estimateFor(channel.login, channel.queueLength),
+    reports: currentReports.slice(-20), estimate: estimateFor(channel.login, age < REPORT_TTL_MS ? channel.queueLength : null),
     url: `https://www.twitch.tv/${encodeURIComponent(channel.login)}` };
 }
+function compareRecommendations(a, b) {
+  return (a.estimatedMinutes ?? Infinity) - (b.estimatedMinutes ?? Infinity) ||
+    (a.queueLength ?? Infinity) - (b.queueLength ?? Infinity) ||
+    Date.parse(b.report.observedAt) - Date.parse(a.report.observedAt) || a.login.localeCompare(b.login);
+}
+
+function sourceIsCurrent(report) {
+  const status = streamStatus.get(report.login);
+  if (status?.state === 'offline') return false;
+  return report.source !== 'Twitch 直播预览' || (status?.state === 'online' && status.streamId === report.streamId);
+}
+
 function rankRecommendations() {
   return reports.filter(report => {
     const channel = channels.get(report.login);
-    return report.status === 'available' && reportFresh(report) && channel?.lastFrameAt && Date.now() - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS;
+    return report.status === 'available' && reportFresh(report) && channel?.lastFrameAt &&
+      Date.now() - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS &&
+      sourceIsCurrent(report);
   }).map(report => {
     const channel = channels.get(report.login); const estimate = estimateFor(report.login, channel?.queueLength);
     return { report, login: report.login, displayName: channel?.displayName || report.displayName || report.login,
       queueLength: estimate.queueLength, estimatedMinutes: estimate.estimatedMinutes, confidence: estimate.confidence };
-  }).sort((a, b) => (a.estimatedMinutes ?? Infinity) - (b.estimatedMinutes ?? Infinity) || (a.queueLength ?? Infinity) - (b.queueLength ?? Infinity));
+  }).sort(compareRecommendations);
+}
+
+function monitoredLogins() {
+  return [...new Set([...CHANNELS, ...settings.watchedChannels])];
+}
+
+async function refreshMonitor() {
+  if (monitor.running || !twitch.status().connected || process.platform !== 'win32') return;
+  monitor.running = true;
+  const generation = monitorGeneration;
+  const logins = monitoredLogins();
+  const active = () => generation === monitorGeneration && twitch.status().connected;
+  try {
+    const streams = new Map();
+    for (let index = 0; index < logins.length; index += 100) {
+      const page = await twitch.getStreams(logins.slice(index, index + 100));
+      for (const stream of page) streams.set(cleanLogin(stream.user_login), stream);
+    }
+    if (!active()) return;
+    for (const login of logins) {
+      const stream = streams.get(login);
+      const previous = streamStatus.get(login);
+      streamStatus.set(login, { state: stream ? 'online' : 'offline', streamId: stream?.id, error: previous?.streamId === stream?.id && stream ? previous?.error || '' : '' });
+    }
+    for (const login of logins) {
+      const stream = streams.get(login);
+      if (!stream) continue;
+      try {
+        const image = await twitch.getThumbnail(stream);
+        if (!active()) return;
+        const result = await scanScreen(login, image, { isScreenshot: false, active, streamId: stream.id, source: 'Twitch 直播预览' });
+        if (active() && !result.duplicate) streamStatus.get(login).error = result.result?.reports?.length ? '' : '预览中未读到清晰的进度。';
+      } catch (error) {
+        if (active()) streamStatus.get(login).error = error.status === 429 ? '正在处理其他画面，将在下一轮重试。' : '直播预览暂时无法识别。';
+      }
+    }
+    if (active()) {
+      monitor.lastScanAt = new Date().toISOString();
+      monitor.error = '';
+    }
+  } catch (error) {
+    if (generation === monitorGeneration) {
+      streamStatus.clear();
+      monitor.error = error.status ? error.message : '暂时无法读取 Twitch 在线频道。';
+    }
+  } finally {
+    monitor.running = false;
+  }
+}
+
+function queueError(status, message) { return Object.assign(new Error(message), { status }); }
+
+function canRequest(report) {
+  return report.officialName === true && Boolean(buildQueueCommand(report, 'Guardian#1234'));
+}
+
+function encounterLabel(report) {
+  const chest = /^chest([12])$/i.exec(report.encounterCode);
+  return report.encounter === '隐藏宝箱' && chest ? `${report.encounter}（${chest[1]} 号）` : report.encounter;
+}
+
+function progressKey(report) {
+  return JSON.stringify([report.activityId || report.activityCode, encounterLabel(report), report.difficultyCode]);
+}
+
+function queueSelection(body, pickBest) {
+  const bungieId = normalizeBungieId(body.bungieId);
+  if (!bungieId) throw queueError(400, '请输入完整的 Bungie ID（名称#四位数字）。');
+  const selected = reports.find(report => report.id === body.reportId && reportFresh(report));
+  if (!selected) throw queueError(409, '该进度已过期，请刷新列表后重选。');
+  const eligible = rankRecommendations().filter(item => canRequest(item.report));
+  const targetProgress = progressKey(selected);
+  const sameProgress = report => progressKey(report) === targetProgress;
+  const candidates = pickBest ? eligible.filter(item => sameProgress(item.report)) : eligible.filter(item => item.report.id === selected.id);
+  for (const item of candidates) {
+    const command = buildQueueCommand(item.report, bungieId);
+    if (command) return { reportId: item.report.id, login: item.login, command, queueLength: item.queueLength, estimatedMinutes: item.estimatedMinutes };
+  }
+  throw queueError(409, '暂时没有已确认可用且指令已核实的对应频道。');
+}
+
+function previewQueueRequest(body) {
+  const request = queueSelection(body, true);
+  const now = Date.now();
+  for (const [id, entry] of queuePreviews) if (entry.expiresAt <= now) queuePreviews.delete(id);
+  if (queuePreviews.size >= 100) queuePreviews.delete(queuePreviews.keys().next().value);
+  const previewId = crypto.randomUUID();
+  queuePreviews.set(previewId, { request, expiresAt: now + 2 * 60_000 });
+  return { ...request, previewId };
+}
+
+async function sendQueueRequest(body, viaWebPage = false) {
+  const preview = queuePreviews.get(body.previewId);
+  if (!preview || preview.expiresAt <= Date.now()) throw queueError(409, '申请预览已使用或过期，请重新匹配频道。');
+  const prepared = queueSelection(body, false);
+  if (body.login !== prepared.login || body.command !== prepared.command || prepared.reportId !== preview.request.reportId ||
+      prepared.login !== preview.request.login || prepared.command !== preview.request.command)
+    throw queueError(409, '频道或申请指令有变化，请重新预览。');
+  if (!viaWebPage && !twitch.status().connected) throw queueError(401, '请先连接 Twitch 账号。');
+  queuePreviews.delete(body.previewId);
+  if (viaWebPage) return { login: prepared.login, command: prepared.command };
+  const messageId = await twitch.sendChat(prepared.login, prepared.command);
+  return { login: prepared.login, messageId };
 }
 function buildState() {
   const now = Date.now();
   const recentReports = reports.filter(reportFresh).map(report => {
     const channel = channels.get(report.login);
-    const current = channel?.lastFrameAt && now - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS;
-    return !current && report.status === 'available' ? { ...report, status: 'candidate', confidence: '本频道近期没有新截图，需重新确认' } : report;
+    const current = channel?.lastFrameAt && now - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS && sourceIsCurrent(report);
+    const item = { ...report, encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
+    if (!current && report.status === 'available') return { ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false };
+    return { ...item, canRequest: report.status === 'available' && canRequest(report) };
   });
-  return { app: { state: lastError ? 'error' : 'ready', message: lastError || '准备就绪：打开 Twitch 网页后点击“识别当前画面”', error: lastError, lastScanAt },
+  const account = twitch.status();
+  return { app: { state: lastError ? 'error' : 'ready', message: lastError || '本机检查点工作台已就绪', error: lastError, lastScanAt },
     settings, streams: [...channels.values()].map(summarizeChannel).sort((a, b) => Number(b.watching) - Number(a.watching) || (b.lastFrameAt || '').localeCompare(a.lastFrameAt || '')),
     reports: recentReports.slice(-500).reverse(), recommendations: rankRecommendations().slice(0, 12),
-    capabilities: { embeddedTwitchWeb: true, localScreenRecognition: process.platform === 'win32', twitchDeveloperAppRequired: false, chatSending: false },
-    limitations: ['程序只识别你在 Twitch 官方网页中实际打开的可见画面，不扫描 Twitch 直播目录。', '识别使用本机截图 OCR；网页画面清晰度、缩略图/视频加载及 Twitch 播放状态会影响结果。', '连续两张不同画面识别到相同进度后才标为已复核候选；OCR 仍可能误读，请在 Twitch 页面人工核对。', '队列估时只根据本机多次看到的队列变化计算；样本不足时显示未知。', '账号网页登录遵循 Twitch 自身安全验证；本程序不读取密码或 Cookie，也不绕过账号安全验证。'] };
+    twitch: account,
+    monitor: { ...monitor, channels: monitoredLogins().map(login => ({ login, ...streamStatus.get(login) })) },
+    capabilities: { embeddedTwitchWeb: true, localScreenRecognition: process.platform === 'win32', twitchDeveloperAppRequired: !account.configured, chatSending: account.connected },
+    limitations: ['直播预览来自 Twitch，可能有最多约 5 分钟延迟。', '两张不同画面均读到相同进度后才可申请。', '队列估时样本不足时显示未知。'] };
 }
-async function scanScreen(loginValue, image) {
+async function scanScreen(loginValue, image, { isScreenshot = true, active = () => true, streamId, source = 'Twitch 网页可见画面' } = {}) {
   const login = cleanLogin(loginValue);
   if (!login) throw Object.assign(new Error('无法识别 Twitch 频道名称。请从频道页面打开识别窗口。'), { status: 400 });
   if (activeScans.size >= 1) throw Object.assign(new Error('已有画面正在识别，请稍候。'), { status: 429 });
@@ -305,8 +442,15 @@ async function scanScreen(loginValue, image) {
   try {
     const fingerprint = crypto.createHash('sha256').update(image).digest('hex');
     const channel = ensureChannel(login);
+    if (streamId && channel.streamId !== streamId) {
+      channel.streamId = streamId;
+      channel.lastFingerprint = null;
+      channel.previousKeys.clear();
+      queueObservations.delete(login);
+    }
   if (channel.lastFingerprint === fingerprint) return { login, duplicate: true, recognized: false, reports: reports.filter(report => report.login === login && reportFresh(report)), message: '画面没有变化；等待播放画面更新后再识别。' };
-  const result = await recognizeImage(image, { channel: login, isScreenshot: true });
+  const result = await recognizeImage(image, { channel: login, isScreenshot });
+  if (!active()) return { login, duplicate: false, recognized: false };
   const observedAt = new Date().toISOString(); const now = Date.now();
   channel.lastFingerprint = fingerprint; channel.lastFrameAt = observedAt; channel.watching = true;
   channel.queueLength = Number.isFinite(result?.queueLength) ? result.queueLength : null;
@@ -322,9 +466,11 @@ async function scanScreen(loginValue, image) {
       recognizedFrames.set(key, { fingerprint, at: now });
       const existing = reports.find(report => report.login === login && reportKey(login, report) === key);
       const record = { id: existing?.id || crypto.randomUUID(), login, displayName: channel.displayName || login,
-        activity: found.activity, activityCode: found.activityCode, encounter: found.encounter, encounterCode: found.encounterCode,
+        activity: found.activity, activityId: found.activityId, activityCode: found.activityCode, encounter: found.encounter, encounterCode: found.encounterCode,
+        officialName: found.officialName,
         difficulty: found.difficulty, difficultyCode: found.difficultyCode, queueLength: channel.queueLength,
-        confidence: distinctConsecutive ? '连续识别两张不同画面' : '单张画面候选，请复核', status: distinctConsecutive ? 'available' : 'candidate', observedAt, source: 'Twitch网页可见画面' };
+        confidence: distinctConsecutive ? '连续识别两张不同画面' : '单张画面候选，请复核', status: distinctConsecutive ? 'available' : 'candidate', observedAt,
+        source, streamId };
       if (existing) Object.assign(existing, record); else reports.push(record);
     }
   }
@@ -357,7 +503,7 @@ function makeServer() {
     const bootstrap = req.method === 'GET' && url.pathname === '/' && consumeLaunchKey(req);
     if (bootstrap) {
       const sid = crypto.randomBytes(32).toString('base64url'); sessionId = sid;
-      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': `d2sid=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400` });
+      res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': `d2sid=${sid}; HttpOnly; SameSite=Strict; Path=/` });
       res.end(fs.readFileSync(path.join(UI_ROOT, 'index.html'))); return;
     }
     if (!authenticated(req)) { req.resume(); sendJson(res, 401, { error: '本机应用会话无效，请重新启动应用。' }, { 'X-D2-Session': 'required' }); return; }
@@ -365,14 +511,52 @@ function makeServer() {
     try {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) { reply(res, 200, fs.readFileSync(path.join(UI_ROOT, 'index.html')), { 'Content-Type': MIME['.html'] }); return; }
       if (req.method === 'GET' && url.pathname.startsWith('/ui/')) {
-        const name = url.pathname.slice(4); if (!['app.js', 'styles.css'].includes(name)) { reply(res, 404, '未找到请求资源。', { 'Content-Type': 'text/plain; charset=utf-8' }); return; }
+        const name = url.pathname.slice(4); if (!UI_ASSETS.has(name)) { reply(res, 404, '未找到请求资源。', { 'Content-Type': 'text/plain; charset=utf-8' }); return; }
         reply(res, 200, fs.readFileSync(path.join(UI_ROOT, name)), { 'Content-Type': MIME[path.extname(name)] }); return;
       }
       if (req.method === 'GET' && url.pathname === '/api/state') { sendJson(res, 200, buildState()); return; }
+      if (req.method === 'POST' && url.pathname === '/api/twitch/device') {
+        const body = await readBody(req, 4000);
+        sendJson(res, 200, await twitch.startDevice(body.clientId)); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/twitch/check') {
+        req.resume();
+        const wasConnected = twitch.status().connected;
+        const account = await twitch.checkDevice();
+        if (!wasConnected && account.connected) void refreshMonitor();
+        sendJson(res, 200, account); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/twitch/disconnect') {
+        req.resume(); twitch.disconnect(); monitorGeneration++; streamStatus.clear(); queuePreviews.clear();
+        monitor.lastScanAt = null; monitor.error = '';
+        sendJson(res, 200, twitch.status()); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/monitor/refresh') {
+        req.resume();
+        if (!twitch.status().connected) throw queueError(401, '请先连接 Twitch 账号。');
+        if (process.platform !== 'win32') throw queueError(409, '本机直播预览 OCR 需要 Windows。');
+        void refreshMonitor();
+        sendJson(res, 202, { running: monitor.running }); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/queue/preview') {
+        sendJson(res, 200, previewQueueRequest(await readBody(req, 4000))); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/queue/send') {
+        sendJson(res, 200, await sendQueueRequest(await readBody(req, 6000))); return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/queue/web-send') {
+        sendJson(res, 200, await sendQueueRequest(await readBody(req, 6000), true)); return;
+      }
       if (req.method === 'POST' && url.pathname === '/api/screen-scan') {
         const login = cleanLogin(url.searchParams.get('login'));
         if (!login) { req.resume(); sendJson(res, 400, { error: '请从 Twitch 频道网页启动画面识别。' }); return; }
-        const result = await withImageJob(req, async () => scanScreen(login, await readImage(req)));
+        const videoFrame = url.searchParams.get('layout') === 'video';
+        const liveCapture = url.searchParams.get('source') === 'live';
+        const options = videoFrame ? {
+          isScreenshot: false, source: liveCapture ? 'Twitch 直播画面' : '手动导入直播画面',
+          active: () => !req.aborted && !res.destroyed
+        } : undefined;
+        const result = await withImageJob(req, async () => scanScreen(login, await readImage(req), options));
         sendJson(res, 200, result); return;
       }
       if (req.method === 'POST' && url.pathname === '/api/watch') {
@@ -389,8 +573,8 @@ function makeServer() {
       if (req.method === 'GET') { reply(res, 404, '未找到请求资源。', { 'Content-Type': 'text/plain; charset=utf-8' }); return; }
       reply(res, 405, '不支持的请求方法。', { 'Content-Type': 'text/plain; charset=utf-8', 'Allow': 'GET, POST' });
     } catch (error) {
-      const safeStatus = Number.isInteger(error.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
-      const safeMessage = safeStatus === 500 ? '本机处理失败。未记录或返回截图文本；请重试或重启应用。' : String(error.message || '请求失败。').slice(0, 180);
+      const safeStatus = Number.isInteger(error.status) && (error.status >= 400 && error.status < 500 || [502, 504].includes(error.status)) ? error.status : 500;
+      const safeMessage = safeStatus === 500 ? '本机处理失败，请重试或重启应用。' : String(error.message || '请求失败。').slice(0, 180);
       lastError = safeStatus === 500 ? safeMessage : '';
       sendJson(res, safeStatus, { error: safeMessage });
     }
@@ -401,5 +585,6 @@ if (require.main === module) {
   server.listen(PORT, HOST, () => { const address = server.address(); process.stdout.write(`${process.env.D2_PORT === '0' ? 'D2_READY' : '本机服务已启动'} http://${HOST}:${address.port}/\n`); });
   process.on('SIGINT', () => server.close(() => process.exit(0)));
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
+  setInterval(() => void refreshMonitor(), SCAN_INTERVAL_MS).unref();
 }
 module.exports = { makeServer, scanScreen, buildState, estimateFor, persist };

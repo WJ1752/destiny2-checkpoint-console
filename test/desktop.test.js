@@ -100,22 +100,29 @@ function closeServer(server) {
   });
 }
 
-function report(activityCode = 'VoG', encounterCode = 'Templar') {
+function report() {
   return {
-    activity: activityCode === 'VoG' ? '玻璃宝库' : '王之陨落',
-    activityCode,
-    encounter: encounterCode === 'Templar' ? '圣堂武士' : '高尔戈洛斯',
-    encounterCode,
+    activity: '国王的陨落',
+    activityId: 'kingsFall',
+    activityCode: 'KF',
+    encounter: '战争祭司',
+    encounterCode: 'Warpriest',
+    officialName: true,
     difficulty: '普通',
     difficultyCode: 'N'
   };
 }
 
-test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、拒绝旧 API', async t => {
+test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览与发送', async t => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'd2-screen-test-'));
   const launchKey = 'screen-scan-integration-key';
   const originalFetch = globalThis.fetch;
-  const environment = Object.fromEntries(['D2_DATA_DIR', 'D2_HOST', 'D2_PORT', 'D2_LAUNCH_KEY'].map(key => [key, process.env[key]]));
+  const environment = Object.fromEntries(['D2_DATA_DIR', 'D2_HOST', 'D2_PORT', 'D2_LAUNCH_KEY', 'D2_TWITCH_CLIENT_ID'].map(key => [key, process.env[key]]));
+  const preferredChannel = 'd2checkpoints';
+  const otherChannel = 'luckbot9';
+  const autoReadChannel = 'travelerschosenteam';
+  const sentMessages = [];
+  let connected = false;
   let externalFetchCalls = 0;
   let recognizeCalls = 0;
   const frames = new Map();
@@ -137,17 +144,30 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
   frames.set(crypto.createHash('sha256').update(blankA).digest('hex'), { recognized: false, queueLength: null, reports: [] });
 
   const visionPath = require.resolve('../desktop/vision');
+  const twitchPath = require.resolve('../desktop/twitch');
   const mainPath = require.resolve('../desktop/main');
-  const previousCache = { vision: require.cache[visionPath], main: require.cache[mainPath] };
+  const previousCache = { vision: require.cache[visionPath], twitch: require.cache[twitchPath], main: require.cache[mainPath] };
   const visionStub = {
     async recognizeImage(image, options) {
       recognizeCalls += 1;
-      assert.equal(options.isScreenshot, true);
-      assert.ok(['channel_a', 'channel_b', 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
+      assert.equal(options.isScreenshot, options.channel !== autoReadChannel);
+      assert.ok([preferredChannel, otherChannel, autoReadChannel, 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
       const key = crypto.createHash('sha256').update(image).digest('hex');
       const result = frames.get(key);
       assert.ok(result, 'the HTTP body must be the exact submitted image bytes');
       return structuredClone(result);
+    }
+  };
+  const twitchStub = {
+    createTwitchClient({ clientId }) {
+      assert.equal(clientId, undefined);
+      return {
+        status: () => ({ configured: connected, connected, login: connected ? 'local_test_user' : null }),
+        async sendChat(login, command) {
+          sentMessages.push({ login, command });
+          return 'test-message-id';
+        }
+      };
     }
   };
 
@@ -155,8 +175,10 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
   process.env.D2_HOST = '127.0.0.1';
   process.env.D2_PORT = '0';
   process.env.D2_LAUNCH_KEY = launchKey;
+  delete process.env.D2_TWITCH_CLIENT_ID;
   globalThis.fetch = async () => { externalFetchCalls += 1; throw new Error('unexpected network access'); };
   require.cache[visionPath] = { id: visionPath, filename: visionPath, loaded: true, exports: visionStub };
+  require.cache[twitchPath] = { id: twitchPath, filename: twitchPath, loaded: true, exports: twitchStub };
   delete require.cache[mainPath];
 
   let server;
@@ -168,8 +190,10 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
     globalThis.fetch = originalFetch;
     delete require.cache[mainPath];
     delete require.cache[visionPath];
+    delete require.cache[twitchPath];
     if (previousCache.main) require.cache[mainPath] = previousCache.main;
     if (previousCache.vision) require.cache[visionPath] = previousCache.vision;
+    if (previousCache.twitch) require.cache[twitchPath] = previousCache.twitch;
     for (const [key, value] of Object.entries(environment)) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -196,27 +220,31 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
     const replay = await httpRequest(port, '/', 'GET', { 'X-D2-Launch-Key': launchKey });
     assert.equal(replay.status, 401, 'the one-use bootstrap key must not be replayable');
 
+    const heroAsset = await httpRequest(port, '/ui/assets/orbital-watch.webp', 'GET', { Cookie: cookie });
+    assert.equal(heroAsset.status, 200);
+    assert.equal(heroAsset.headers['content-type'], 'image/webp');
+
     const stateBeforeScan = await httpRequest(port, '/api/state', 'GET', { Cookie: cookie });
     assert.equal(stateBeforeScan.status, 200);
     const initial = JSON.parse(stateBeforeScan.body);
-    assert.equal(initial.capabilities.twitchDeveloperAppRequired, false);
+    assert.equal(initial.capabilities.twitchDeveloperAppRequired, true);
     assert.equal(initial.capabilities.chatSending, false);
 
-    const noOrigin = await imageRequest(port, 'channel_a', firstA, { cookie });
+    const noOrigin = await imageRequest(port, preferredChannel, firstA, { cookie });
     assert.equal(noOrigin.status, 403, 'mutating screen scans require the exact local Origin');
-    const wrongOrigin = await imageRequest(port, 'channel_a', firstA, { cookie, origin: `${origin}.evil` });
+    const wrongOrigin = await imageRequest(port, preferredChannel, firstA, { cookie, origin: `${origin}.evil` });
     assert.equal(wrongOrigin.status, 403);
-    const unauthenticated = await imageRequest(port, 'channel_a', firstA, { origin });
+    const unauthenticated = await imageRequest(port, preferredChannel, firstA, { origin });
     assert.equal(unauthenticated.status, 401, 'screen scans require the bootstrap session cookie');
     assert.equal(recognizeCalls, 0, 'rejected origins and sessions must not reach OCR');
 
-    const malformed = await imageRequest(port, 'channel_a', Buffer.from('not an image'), { cookie, origin });
+    const malformed = await imageRequest(port, preferredChannel, Buffer.from('not an image'), { cookie, origin });
     assert.equal(malformed.status, 415, 'malformed image data must be rejected');
-    const mismatchedType = await imageRequest(port, 'channel_a', firstA, { cookie, origin, contentType: 'text/html' });
+    const mismatchedType = await imageRequest(port, preferredChannel, firstA, { cookie, origin, contentType: 'text/html' });
     assert.equal(mismatchedType.status, 415, 'HTML bodies must not be accepted as screenshots');
-    const mismatchedPngSignature = await imageRequest(port, 'channel_a', jpegC, { cookie, origin, contentType: 'image/png' });
+    const mismatchedPngSignature = await imageRequest(port, preferredChannel, jpegC, { cookie, origin, contentType: 'image/png' });
     assert.equal(mismatchedPngSignature.status, 415, 'JPEG magic bytes must not be accepted under image/png');
-    const mismatchedJpegSignature = await imageRequest(port, 'channel_a', firstA, { cookie, origin, contentType: 'image/jpeg' });
+    const mismatchedJpegSignature = await imageRequest(port, preferredChannel, firstA, { cookie, origin, contentType: 'image/jpeg' });
     assert.equal(mismatchedJpegSignature.status, 415, 'PNG magic bytes must not be accepted under image/jpeg');
     const oversizedHeader = Buffer.alloc(13);
     oversizedHeader.writeUInt32BE(5000, 0);
@@ -228,48 +256,93 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
       pngChunk('IHDR', oversizedHeader),
       firstA.subarray(33)
     ]);
-    const excessiveDimensionsResponse = await imageRequest(port, 'channel_a', excessiveDimensions, { cookie, origin });
+    const excessiveDimensionsResponse = await imageRequest(port, preferredChannel, excessiveDimensions, { cookie, origin });
     assert.equal(excessiveDimensionsResponse.status, 415, 'images above the 20 million pixel limit must be rejected');
     const brokenCrc = Buffer.from(firstA);
     brokenCrc[29] ^= 0x01;
-    const brokenCrcResponse = await imageRequest(port, 'channel_a', brokenCrc, { cookie, origin });
+    const brokenCrcResponse = await imageRequest(port, preferredChannel, brokenCrc, { cookie, origin });
     assert.equal(brokenCrcResponse.status, 415, 'PNG chunks with invalid CRC must be rejected');
-    const oversizedResponse = await imageRequest(port, 'channel_a', Buffer.alloc(6 * 1024 * 1024 + 1), { cookie, origin });
+    const oversizedResponse = await imageRequest(port, preferredChannel, Buffer.alloc(6 * 1024 * 1024 + 1), { cookie, origin });
     assert.equal(oversizedResponse.status, 413, 'uploads above the 6 MiB cap must be rejected');
     const invalidLogin = await imageRequest(port, 'not a channel!', firstA, { cookie, origin });
     assert.equal(invalidLogin.status, 400);
     assert.equal(recognizeCalls, 0, 'invalid data and channel names must not reach OCR');
 
-    const firstCandidate = await imageRequest(port, 'channel_a', firstA, { cookie, origin });
+    const firstCandidate = await imageRequest(port, preferredChannel, firstA, { cookie, origin });
     assert.equal(firstCandidate.status, 200);
     assert.equal(JSON.parse(firstCandidate.body).reports[0].status, 'candidate');
     assert.equal(recognizeCalls, 1);
 
-    const repeat = await imageRequest(port, 'channel_a', firstA, { cookie, origin });
+    const repeat = await imageRequest(port, preferredChannel, firstA, { cookie, origin });
     assert.equal(repeat.status, 200);
     assert.equal(JSON.parse(repeat.body).duplicate, true);
     assert.equal(recognizeCalls, 1, 'identical image bytes must not trigger another OCR or confirmation');
 
-    const firstOtherChannel = await imageRequest(port, 'channel_b', firstB, { cookie, origin });
+    const firstOtherChannel = await imageRequest(port, otherChannel, firstB, { cookie, origin });
     assert.equal(firstOtherChannel.status, 200);
     assert.equal(JSON.parse(firstOtherChannel.body).reports[0].status, 'candidate');
 
-    const secondCandidate = await imageRequest(port, 'channel_a', secondA, { cookie, origin });
+    const secondCandidate = await imageRequest(port, preferredChannel, secondA, { cookie, origin });
     assert.equal(secondCandidate.status, 200);
     assert.equal(JSON.parse(secondCandidate.body).reports[0].status, 'available');
 
     let stateResponse = await httpRequest(port, '/api/state', 'GET', { Cookie: cookie });
     let state = JSON.parse(stateResponse.body);
-    let aReport = state.reports.find(item => item.login === 'channel_a');
-    let bReport = state.reports.find(item => item.login === 'channel_b');
+    const aReport = state.reports.find(item => item.login === preferredChannel);
+    const bReport = state.reports.find(item => item.login === otherChannel);
     assert.equal(aReport.status, 'available', 'same channel + distinct matching frame confirms a report');
     assert.equal(bReport.status, 'candidate', 'another channel cannot borrow the first channel frame');
-    assert.ok(state.streams.some(item => item.login === 'channel_a'));
-    assert.ok(state.streams.some(item => item.login === 'channel_b'));
+    assert.ok(state.streams.some(item => item.login === preferredChannel));
+    assert.ok(state.streams.some(item => item.login === otherChannel));
 
-    const secondOtherChannel = await imageRequest(port, 'channel_b', secondB, { cookie, origin });
+    const secondOtherChannel = await imageRequest(port, otherChannel, secondB, { cookie, origin });
     assert.equal(secondOtherChannel.status, 200);
     assert.equal(JSON.parse(secondOtherChannel.body).reports[0].status, 'available');
+
+    const postJson = (requestPath, body, requestOrigin = origin) => httpRequest(port, requestPath, 'POST', {
+      Cookie: cookie, Origin: requestOrigin, 'Content-Type': 'application/json'
+    }, Buffer.from(JSON.stringify(body)));
+    const bungieId = '测试玩家#0123';
+    const previewResponse = await postJson('/api/queue/preview', { reportId: bReport.id, bungieId });
+    assert.equal(previewResponse.status, 200);
+    const preview = JSON.parse(previewResponse.body);
+    assert.equal(preview.reportId, aReport.id);
+    assert.equal(preview.login, preferredChannel, 'matching confirmed checkpoints should choose the shorter observed queue');
+    assert.equal(preview.command, '!queue kf 2 n 测试玩家#0123');
+    const request = { ...preview, bungieId };
+    assert.equal((await postJson('/api/queue/send', request)).status, 401);
+    connected = true;
+    assert.equal((await postJson('/api/queue/send', { ...request, command: '!wrong 2 n 测试玩家#0123' })).status, 409);
+    assert.equal((await postJson('/api/queue/send', { ...request, login: otherChannel })).status, 409);
+    assert.equal((await postJson('/api/queue/send', request, `${origin}.evil`)).status, 403);
+    assert.deepEqual(sentMessages, []);
+    const sent = await postJson('/api/queue/send', request);
+    assert.equal(sent.status, 200);
+    assert.deepEqual(JSON.parse(sent.body), { login: preferredChannel, messageId: 'test-message-id' });
+    assert.equal((await postJson('/api/queue/send', request)).status, 409);
+    assert.deepEqual(sentMessages, [{ login: preferredChannel, command: preview.command }]);
+
+    connected = false;
+    const webPreview = await postJson('/api/queue/preview', { reportId: bReport.id, bungieId });
+    assert.equal(webPreview.status, 200);
+    const webRequest = { ...JSON.parse(webPreview.body), bungieId };
+    assert.equal((await postJson('/api/queue/web-send', { ...webRequest, command: '!wrong' })).status, 409);
+    assert.equal((await postJson('/api/queue/web-send', webRequest, `${origin}.evil`)).status, 403);
+    const webSend = await postJson('/api/queue/web-send', webRequest);
+    assert.equal(webSend.status, 200);
+    assert.deepEqual(JSON.parse(webSend.body), { login: preferredChannel, command: preview.command });
+    assert.equal((await postJson('/api/queue/web-send', webRequest)).status, 409);
+    assert.equal((await postJson('/api/queue/send', webRequest)).status, 409);
+    assert.equal(sentMessages.length, 1, 'the native webpage route should not call the Twitch API');
+
+    const autoReadPath = `/api/screen-scan?login=${autoReadChannel}&layout=video&source=live`;
+    for (const [index, frame] of [firstA, secondA].entries()) {
+      const captured = await httpRequest(port, autoReadPath, 'POST', { Cookie: cookie, Origin: origin, 'Content-Type': 'image/png' }, frame);
+      assert.equal(captured.status, 200);
+      const [progress] = JSON.parse(captured.body).reports;
+      assert.equal(progress.source, 'Twitch 直播画面');
+      assert.equal(progress.status, index === 0 ? 'candidate' : 'available');
+    }
 
     const jpegCandidate = await imageRequest(port, 'channel_c', jpegC, { cookie, origin, contentType: 'image/jpeg' });
     assert.equal(jpegCandidate.status, 200, 'a valid JPEG must be accepted by screen-scan');
@@ -283,20 +356,20 @@ test('桌面画面扫描 HTTP 合约：安全握手、按频道双帧确认、�
     const malformedWebpResponse = await imageRequest(port, 'channel_c', malformedWebp, { cookie, origin, contentType: 'image/webp' });
     assert.equal(malformedWebpResponse.status, 415, 'truncated RIFF chunk must be rejected');
 
-    const unreadable = await imageRequest(port, 'channel_a', blankA, { cookie, origin });
+    const unreadable = await imageRequest(port, preferredChannel, blankA, { cookie, origin });
     assert.equal(unreadable.status, 200);
     assert.equal(JSON.parse(unreadable.body).recognized, false);
     assert.equal(JSON.parse(unreadable.body).reports[0].status, 'candidate');
     stateResponse = await httpRequest(port, '/api/state', 'GET', { Cookie: cookie });
     state = JSON.parse(stateResponse.body);
-    assert.equal(state.reports.find(item => item.login === 'channel_a').status, 'candidate', 'an unrecognized new frame demotes that channel confirmation');
-    assert.equal(state.reports.find(item => item.login === 'channel_b').status, 'available', 'an unrecognized frame on A must not demote B');
+    assert.equal(state.reports.find(item => item.login === preferredChannel).status, 'candidate', 'an unrecognized new frame demotes that channel confirmation');
+    assert.equal(state.reports.find(item => item.login === otherChannel).status, 'available', 'an unrecognized frame on one channel must not demote another');
 
     for (const oldRoute of ['/api/auth/begin', '/api/auth/status', '/api/auth/logout', '/api/send-preview', '/api/send', '/api/refresh']) {
       const response = await httpRequest(port, oldRoute, 'POST', { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, Buffer.from('{}'));
       assert.equal(response.status, 405, `legacy route ${oldRoute} must no longer be implemented`);
     }
-    assert.equal(externalFetchCalls, 0, 'screen scanning must never call Twitch or any external network endpoint');
+    assert.equal(externalFetchCalls, 0, 'the mocked run must never call Twitch or any external network endpoint');
   } finally {
     if (!cleanupRegistered) await cleanup();
   }

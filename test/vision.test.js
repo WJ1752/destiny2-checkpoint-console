@@ -37,8 +37,8 @@ test('D2Checkpoints layout maps abbreviated sections and Master encounters', () 
   assert.equal(output.recognized, true);
   assert.equal(output.queueLength, 1);
   assert.deepEqual(output.reports, [
-    { activity: '玻璃宝库', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' },
-    { activity: '玻璃宝库', activityCode: 'VoG', encounter: '阿泰翁', encounterCode: 'Atheon', difficulty: '大师', difficultyCode: 'M' }
+    { activityId: 'vaultGlass', officialName: true, activity: '玻璃拱顶', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' },
+    { activityId: 'vaultGlass', officialName: true, activity: '玻璃拱顶', activityCode: 'VoG', encounter: '埃希恩', encounterCode: 'Atheon', difficulty: '大师', difficultyCode: 'M' }
   ]);
 });
 
@@ -60,9 +60,9 @@ test('SoloRaidsBot layout accepts full activity names and numbered encounters', 
   assert.equal(output.recognized, true);
   assert.equal(output.queueLength, 0);
   assert.deepEqual(output.reports, [
-    { activity: '王之陨落', activityCode: 'KF', encounter: '高尔戈洛斯', encounterCode: 'Golgoroth', difficulty: '普通', difficultyCode: 'N' },
-    { activity: '王之陨落', activityCode: 'KF', encounter: '奥里克斯', encounterCode: 'Oryx', difficulty: '大师', difficultyCode: 'M' },
-    { activity: '玻璃宝库', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' }
+    { activityId: 'kingsFall', officialName: true, activity: '国王的陨落', activityCode: 'KF', encounter: '高尔格罗斯', encounterCode: 'Golgoroth', difficulty: '普通', difficultyCode: 'N' },
+    { activityId: 'kingsFall', officialName: true, activity: '国王的陨落', activityCode: 'KF', encounter: '欧里克斯', encounterCode: 'Oryx', difficulty: '大师', difficultyCode: 'M' },
+    { activityId: 'vaultGlass', officialName: true, activity: '玻璃拱顶', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' }
   ]);
 });
 
@@ -91,4 +91,12 @@ test('channel normalization resolves Twitch URL names and handles malformed OCR 
   assert.equal(vision.resolveProfile('https://twitch.tv/soloraidsbot/').name, 'soloraidsbot');
   assert.equal(vision.parseOcrResult(null).recognized, false);
   assert.equal(vision.parseOcrResult({ width: 10, height: 10, words: [] }).recognized, false);
+});
+
+test('checkpoint labels prefer the complete encounter and preserve difficulty markers', () => {
+  const output = vision.parseOcrResult(syntheticOcr([
+    word('VoG', 0.34, 0.50), word('Post-Templar 〈M〉', 0.34, 0.58, 0.13)
+  ]), { channel: 'd2checkpoints', isScreenshot: true });
+  assert.equal(output.reports[0].encounterCode, 'PostTemplar');
+  assert.equal(output.reports[0].difficultyCode, 'M');
 });

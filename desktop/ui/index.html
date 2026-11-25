@@ -4,91 +4,204 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0b1012">
-  <title>命运 2 · 本机检查点工作台</title>
+  <meta name="theme-color" content="#0c101a">
+  <title>命运 2 · 检查点指挥台</title>
   <link rel="stylesheet" href="/ui/styles.css">
   <script src="/ui/app.js" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#top">跳转到主要内容</a>
   <div class="app-shell">
     <aside class="sidebar">
-      <a class="brand" href="#top" aria-label="检查点工作台首页"><span class="brand-mark">✦</span><span><b>检查点工作台</b><small>DESTINY 2 · 本机识别</small></span></a>
-      <div class="privacy-card"><span class="privacy-icon">⌂</span><span><b>画面只在本机处理</b><small>无需开发者应用编号</small></span></div>
-      <div class="side-section">
-        <div class="section-label">当前状态</div>
-        <div id="monitor-status" class="monitor-state"><i></i><span>正在连接本机服务…</span></div>
-        <div class="side-stats"><div><b id="watching-count">0</b><span>正在识别</span></div><div><b id="report-count">0</b><span>检查点记录</span></div></div>
-      </div>
+      <a class="brand" href="#top" aria-label="检查点指挥台首页">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span><b>检查点指挥台</b><small>CHECKPOINT CONSOLE</small></span>
+      </a>
+
+      <nav class="primary-nav" aria-label="工作台导航">
+        <a class="nav-link" href="#top" aria-current="location"><span class="nav-icon" data-icon="current" aria-hidden="true"></span>工作台</a>
+        <a class="nav-link" href="#results"><span class="nav-icon" data-icon="results" aria-hidden="true"></span>检查点记录</a>
+        <a class="nav-link" href="#channels"><span class="nav-icon" data-icon="channels" aria-hidden="true"></span>频道管理</a>
+      </nav>
+
       <div class="side-section side-channel-section">
         <div class="section-label">我的频道 <span id="channel-total">0</span></div>
-        <div id="side-channels" class="side-channels"><div class="empty-mini">输入 Twitch 频道登录名开始</div></div>
+        <div id="side-channels" class="side-channels"><div class="empty-mini">还没有频道</div></div>
       </div>
-      <div class="side-bottom"><span class="local-dot"></span> 本机服务 · 可从托盘退出</div>
+
+      <div class="side-section side-system">
+        <div class="section-label">本机服务</div>
+        <div id="monitor-status" class="monitor-state"><i></i><span>正在连接本机服务…</span></div>
+      </div>
+      <div class="side-bottom">可从系统托盘退出</div>
     </aside>
 
-    <main id="top" class="main">
+    <main id="top" class="main" tabindex="-1">
       <header class="topbar">
-        <div class="crumb">本机工作台 <span>/</span> <b>网页观看与屏幕 OCR</b></div>
-        <div class="top-actions"><span class="local-pill"><i></i> 截图不上传</span><button id="refresh" class="icon-button" title="刷新状态" aria-label="刷新状态">↻</button></div>
+        <div class="crumb">本机终端 <span aria-hidden="true">/</span> <b>进度总览</b></div>
+        <div class="top-actions">
+          <span class="local-pill"><i></i>截图不上传</span>
+          <button id="refresh" class="icon-button" type="button" title="刷新状态" aria-label="刷新状态"><span class="action-icon" data-icon="refresh" aria-hidden="true"></span></button>
+        </div>
       </header>
 
-      <section class="hero">
-        <div>
-          <div class="eyebrow"><span class="eyebrow-line"></span>LOCAL VIEW · SCREEN OCR</div>
-          <h1>打开直播，<em>识别检查点</em></h1>
-          <p>在 Twitch 网页中手动登录并播放；由本机截取你当前可见的页面画面进行 OCR。</p>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="hero-label" lang="en">DESTINY 2</p>
+          <h1 id="hero-title">检查点指挥台</h1>
+          <p>读取 Twitch 直播进度，确认检查点并匹配申请频道。</p>
+          <div class="hero-meta"><a class="button button-outline" href="#results">查看检查点</a></div>
         </div>
-        <div class="hero-badge"><span class="shield">⌂</span><span><b>无需开发者应用编号</b><small>不接入开发接口，不代发聊天</small></span></div>
-      </section>
-
-      <section class="channel-launch panel">
-        <div class="launch-copy"><span class="step-number">01</span><div><div class="panel-kicker">选择 Twitch 频道</div><h2>从登录名打开直播</h2><p>输入频道地址末尾的登录名，例如 <code>d2checkpoints</code>。</p></div></div>
-        <div class="launch-form"><label class="sr-only" for="channel-login">Twitch 频道登录名</label><span class="at-prefix">twitch.tv/</span><input id="channel-login" class="text-input" maxlength="25" placeholder="频道登录名" autocomplete="off" spellcheck="false"><button id="open-twitch" class="button button-primary"><span>打开 Twitch 网页</span><span aria-hidden="true">↗</span></button></div>
-        <div class="launch-note"><span class="note-icon">i</span><span>网页登录和播放由你在 Twitch 官方网页中手动完成。账号若要求 2FA，请按 Twitch 提示操作；本程序不会读取密码或 Cookie，也不会绕过验证。</span></div>
       </section>
 
       <section class="metrics" aria-label="识别概览">
-        <article class="metric"><div class="metric-label">当前识别频道<span class="metric-symbol aqua">◉</span></div><b id="metric-watching">0</b><small>由你打开并播放的直播页面</small></article>
-        <article class="metric"><div class="metric-label">检查点记录<span class="metric-symbol purple">⌗</span></div><b id="metric-reports">0</b><small>候选需人工核对画面</small></article>
-        <article class="metric"><div class="metric-label">最近一次识别<span class="metric-symbol gold">◷</span></div><b id="metric-scan">—</b><small>本机 OCR 结果时间</small></article>
+        <article class="metric">
+          <span class="metric-symbol aqua" data-icon="signal" aria-hidden="true"></span>
+          <div class="metric-copy"><div class="metric-label">活动频道</div><b id="metric-watching">0</b><small>在线或最近已识别</small></div>
+        </article>
+        <article class="metric">
+          <span class="metric-symbol purple" data-icon="results" aria-hidden="true"></span>
+          <div class="metric-copy"><div class="metric-label">检查点记录</div><b id="metric-reports">0</b><small>含待复核候选</small></div>
+        </article>
+        <article class="metric">
+          <span class="metric-symbol gold" data-icon="time" aria-hidden="true"></span>
+          <div class="metric-copy"><div class="metric-label">最近识别</div><b id="metric-scan">—</b><small>本机 OCR 结果时间</small></div>
+        </article>
       </section>
 
-      <section class="workspace-grid">
+      <div class="command-grid">
+        <section class="progress-panel read-panel panel" aria-labelledby="read-title">
+          <div class="read-visual" aria-hidden="true"></div>
+          <div class="panel-heading">
+            <div class="panel-title"><span class="panel-icon" data-icon="scan" aria-hidden="true"></span><h2 id="read-title">读取频道进度</h2></div>
+          </div>
+          <p id="progress-read-status" class="panel-description" role="status">正在加载频道列表…</p>
+          <div class="progress-controls read-controls">
+            <button id="read-progress" class="button button-primary" type="button" disabled>一键读取进度</button>
+            <button id="cancel-progress-read" class="button button-quiet hidden" type="button">取消读取</button>
+            <a id="read-import" class="button button-outline hidden" href="#import">导入直播截图</a>
+          </div>
+          <progress id="progress-read-meter" class="read-meter hidden" max="1" value="0" aria-label="频道读取进度"></progress>
+          <ul id="progress-read-results" class="read-results hidden" aria-label="各频道读取结果"></ul>
+        </section>
+
+        <section class="progress-panel queue-panel panel" aria-labelledby="queue-title">
+          <div class="panel-heading">
+            <div class="panel-title"><span class="panel-icon" data-icon="queue" aria-hidden="true"></span><h2 id="queue-title">申请检查点</h2></div>
+          </div>
+          <p id="queue-chat-hint" class="panel-description queue-chat-hint">在 Twitch 聊天中登录，匹配后核对频道和指令。</p>
+          <form id="queue-form" class="progress-controls queue-form">
+            <label class="progress-field">Bungie ID<input id="player-id" class="text-input" placeholder="玩家名称#1234" maxlength="80" autocomplete="off" spellcheck="false" required></label>
+            <label class="progress-field progress-choice">检查点<select id="progress-choice" class="text-input" required disabled><option value="">等待可申请进度</option></select></label>
+            <div class="progress-controls queue-actions">
+              <button id="prepare-queue" class="button button-primary" type="submit" disabled>匹配最佳频道</button>
+              <button id="open-queue-chat" class="button button-outline" type="button">打开 Twitch 聊天</button>
+            </div>
+          </form>
+          <div id="queue-preview" class="queue-preview hidden">
+            <p id="queue-recommendation" class="panel-description"></p>
+            <label class="progress-field">频道申请指令<input id="queue-command" class="text-input" readonly></label>
+            <div class="progress-controls">
+              <button id="send-queue" class="button button-primary hidden" type="button">在 Twitch 聊天发送</button>
+              <button id="copy-queue" class="button button-primary" type="button">复制指令并打开聊天</button>
+              <a id="queue-channel" class="button button-outline" target="_blank" rel="noopener noreferrer">打开频道聊天</a>
+            </div>
+          </div>
+          <p id="queue-status" class="panel-description" role="status">仅可申请已确认可用且指令已核实的检查点。</p>
+        </section>
+      </div>
+
+      <div class="workspace-grid">
         <div class="main-column">
-          <section class="watch-panel panel">
-            <div class="panel-heading"><div><div class="panel-kicker">WATCH & RECOGNIZE</div><h2>当前频道 <span id="active-channel-label" class="active-label">尚未选择</span></h2></div><span id="page-state" class="state-pill idle"><i></i>等待打开</span></div>
-            <div class="watch-steps">
-              <div class="watch-step"><span>1</span><div><b>在 Twitch 窗口手动登录</b><small>按需完成 Twitch 的账号安全验证</small></div></div>
-              <div class="watch-step"><span>2</span><div><b>打开视频并等待画面清晰</b><small>OCR 读取当前屏幕画面，不读取网页数据</small></div></div>
-              <div class="watch-step"><span>3</span><div><b>手动识别或开启定时识别</b><small>可在本工作台发起；Twitch 窗口也提供截图按钮</small></div></div>
+          <section id="results" class="results-panel panel" aria-labelledby="results-title" tabindex="-1">
+            <div class="panel-heading">
+              <div class="panel-title"><span class="panel-icon" data-icon="results" aria-hidden="true"></span><h2 id="results-title">检查点记录 <span id="result-count" class="count-badge">0</span></h2></div>
+              <div class="result-legend"><span><i class="dot candidate"></i>待复核</span><span><i class="dot verified"></i>连续画面确认</span></div>
             </div>
-            <div class="capture-handoff">
-              <span class="capture-handoff-icon">⌕</span>
-              <div><b>截图操作在 Twitch 窗口顶部</b><small>在直播播放页面点击“识别当前画面”，或自行勾选每 15 秒自动识别。自动识别默认关闭；点按或勾选即表示同意截取当前可见画面。</small></div>
+            <div id="report-list" class="report-list">
+              <div class="empty-state"><div class="empty-orbit" aria-hidden="true"></div><h3>还没有检查点记录</h3><p>读取频道进度或导入直播截图，识别结果会显示在这里。</p></div>
             </div>
-            <div class="capture-warning"><b>请避开隐私页面</b>不要在登录、密码、验证码或账号安全验证页面启动截图；切回公开直播画面并确认视频正在播放后再操作。切换页面前请先关闭自动识别。</div>
-            <div id="recognition-status" class="privacy-inline"><span>⌂</span>截图仅传入本机 OCR 识别，不保存截图、不上传；仅保留解析出的状态与结果。</div>
           </section>
 
-          <section class="results-panel panel">
-            <div class="panel-heading"><div><div class="panel-kicker">OCR RESULTS</div><h2>识别到的检查点 <span id="result-count" class="count-badge">0</span></h2></div><div class="result-legend"><span><i class="dot candidate"></i>候选，待复核</span><span><i class="dot verified"></i>连续画面确认</span></div></div>
-            <div id="report-list" class="report-list"><div class="empty-state"><div class="empty-orbit">⌗</div><h3>还没有检查点记录</h3><p>打开 Twitch 直播并识别当前画面后，结果会显示在这里。</p></div></div>
+          <section class="watch-panel panel" aria-labelledby="watch-title">
+            <div class="panel-heading">
+              <div class="panel-title"><span class="panel-icon" data-icon="watch" aria-hidden="true"></span><h2 id="watch-title">当前频道 <span id="active-channel-label" class="active-label">尚未选择</span></h2></div>
+              <span id="page-state" class="state-pill idle"><i></i>等待打开</span>
+            </div>
+            <p id="recognition-status" class="panel-description">等待识别</p>
+            <details class="watch-guide">
+              <summary>直播截图操作与隐私说明</summary>
+              <ol class="watch-steps">
+                <li class="watch-step"><b>打开 Twitch 直播</b><small>如需登录或双重验证，请在 Twitch 官方网页中完成。工具不会读取密码或 Cookie。</small></li>
+                <li class="watch-step"><b>等待直播画面清晰</b><small>缩放、清晰度和视频加载会影响 OCR，请按直播画面核对关卡与队列。</small></li>
+                <li class="watch-step"><b>识别当前画面</b><small>在 Twitch 窗口顶部点击“识别当前画面”，或勾选每 15 秒自动识别。自动识别默认关闭，操作前请确认画面可以截图。</small></li>
+              </ol>
+              <p class="capture-warning">启动截图前请切回公开直播。打开登录、密码或验证码页面前，请先关闭自动识别。</p>
+              <p class="privacy-inline">截图仅用于本机 OCR，保存的数据仅包含解析结果。</p>
+            </details>
           </section>
 
-          <section class="manual-panel panel">
-            <div class="manual-icon">▧</div><div class="manual-copy"><b>没有桌面窗口？仍可手动识别图片</b><small>选择你本机已有的图片，仅用于本机 OCR 解析格式校验，不会关联频道、写入识别历史或队列观察；图片不保存、不上传。限制 6 MiB。</small></div>
-            <label class="button button-quiet file-button" for="image-file">选择图片<input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="image-test" class="button button-outline" disabled>识别图片</button>
+          <section id="import" class="manual-panel panel" aria-labelledby="import-title" tabindex="-1">
+            <span class="panel-icon manual-icon" data-icon="image" aria-hidden="true"></span>
+            <div class="manual-copy"><h2 id="import-title">导入直播截图</h2><p>先填写对应频道。支持 6 MiB 以内、仅包含直播视频的 PNG、JPEG 或 WebP。</p></div>
+            <label class="button button-quiet file-button" for="image-file">选择图片<input id="image-file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            <button id="image-test" class="button button-outline" type="button" disabled>识别图片</button>
           </section>
           <pre id="manual-result" class="manual-result hidden" aria-live="polite"></pre>
         </div>
 
-        <aside class="right-column">
-          <section class="recommend-panel panel"><div class="panel-heading compact"><div><div class="panel-kicker">LOCAL OBSERVATIONS</div><h2>频道与队列观察</h2></div><span class="estimate-icon">⌁</span></div><p class="panel-description">队列与等待估算只依据本机多次观察；历史不足时显示未知。</p><div id="recommendation-list" class="recommendation-list"><div class="empty-mini">尚无可用的本机观察数据</div></div></section>
-          <section class="channel-panel panel"><div class="panel-heading compact"><div><div class="panel-kicker">WATCHED CHANNELS</div><h2>已添加频道</h2></div><span id="watched-count" class="count-badge">0</span></div><div id="channel-list" class="channel-list"><div class="empty-mini">打开频道后会出现在这里</div></div></section>
-          <section class="how-panel"><div class="how-icon">i</div><p><b>识别是辅助，不是保证</b><br>缩放、清晰度和视频加载会影响 OCR。请自行核对关卡与队列；队列样本不足时不提供等待估算。</p></section>
-        </aside>
-      </section>
-      <footer class="footer"><span>本地数据目录 · <code>%LOCALAPPDATA%\D2Checkpoint</code></span><span>网页登录由你操作 <i>·</i> 不读取 Cookie <i>·</i> 不发送聊天</span></footer>
+        <div id="channels" class="right-column" aria-label="频道管理" tabindex="-1">
+          <section class="channel-launch panel" aria-labelledby="launch-title">
+            <div class="panel-heading launch-copy">
+              <div class="panel-title"><span class="panel-icon" data-icon="channels" aria-hidden="true"></span><h2 id="launch-title">添加频道</h2></div>
+            </div>
+            <div class="launch-form">
+              <div class="channel-input-group">
+                <label class="sr-only" for="channel-login">Twitch 频道登录名</label><span class="at-prefix" aria-hidden="true">twitch.tv/</span><input id="channel-login" class="text-input" maxlength="25" placeholder="频道登录名" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="launch-actions">
+                <button id="open-twitch" class="button button-primary" type="button">打开识别窗口</button><button id="open-twitch-browser" class="button button-outline" type="button">用浏览器打开</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="channel-panel panel" aria-labelledby="watched-title">
+            <div class="panel-heading">
+              <div class="panel-title"><span class="panel-icon" data-icon="channels" aria-hidden="true"></span><h2 id="watched-title">已添加频道</h2></div><span id="watched-count" class="count-badge">0</span>
+            </div>
+            <div id="channel-list" class="channel-list"><div class="empty-mini">打开频道后会出现在这里</div></div>
+          </section>
+
+          <section class="recommend-panel panel" aria-labelledby="recommend-title">
+            <div class="panel-heading">
+              <div class="panel-title"><span class="panel-icon" data-icon="insights" aria-hidden="true"></span><h2 id="recommend-title">队列观察</h2></div>
+            </div>
+            <p class="panel-description">等待时间根据本机观察估算，样本不足时显示未知。</p>
+            <div id="recommendation-list" class="recommendation-list"><div class="empty-mini">尚无可用的本机观察数据</div></div>
+          </section>
+
+          <section id="twitch-account-panel" class="progress-panel panel hidden" aria-labelledby="account-title">
+            <div class="panel-heading">
+              <div class="panel-title"><span class="panel-icon" data-icon="watch" aria-hidden="true"></span><h2 id="account-title">Twitch API 监测</h2></div><span id="account-status" class="state-pill idle" role="status">未连接</span>
+            </div>
+            <p id="auto-monitor-status" class="panel-description" role="status">授权后，每分钟检查已添加频道的公开直播预览。</p>
+            <div id="connect-controls" class="progress-controls">
+              <button id="twitch-connect" class="button button-outline" type="button">授权 Twitch API</button>
+            </div>
+            <div id="device-authorization" class="progress-controls hidden">
+              <span>在授权页输入 <code id="device-code"></code></span>
+              <a id="device-link" class="button button-outline" target="_blank" rel="noopener noreferrer">打开 Twitch 授权页</a>
+              <button id="check-auth" class="button button-quiet" type="button">检查授权结果</button>
+            </div>
+            <div id="monitor-controls" class="progress-controls hidden">
+              <button id="monitor-now" class="button button-outline" type="button">立即识别频道</button>
+              <button id="twitch-disconnect" class="button button-quiet" type="button">断开 Twitch</button>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <footer class="footer"><span>本地数据目录 <code>%LOCALAPPDATA%\D2Checkpoint</code></span><span>确认申请指令后发送</span></footer>
     </main>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

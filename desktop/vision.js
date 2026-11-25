@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { layoutSections } = require('./vision-layout');
+const { CHANNELS } = require('./checkpoint-sources');
 
 const DATA_PATH = path.join(__dirname, 'vision-data.json');
 const DATA = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
@@ -10,6 +12,7 @@ const EMPTY_RESULT = Object.freeze({ recognized: false, queueLength: null, repor
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const OCR_TIMEOUT_MS = 20000;
+const ENCOUNTER_PATTERNS = new WeakMap();
 
 function result(recognized, queueLength, reports) {
   return { recognized, queueLength, reports };
@@ -35,6 +38,20 @@ function resolveProfile(channel) {
 
 function normalizedText(value) {
   return String(value || '').toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+function checkpointNames(activityId, encounterCode) {
+  const activity = Object.hasOwn(DATA.activities, activityId) ? DATA.activities[activityId] : null;
+  const code = normalizedText(encounterCode);
+  const encounter = activity?.encounters.find((entry) => normalizedText(entry.encounterCode) === code);
+  const activityName = activity?.nameSource ? activity.activity : null;
+  const encounterName = encounter?.nameSource ? encounter.encounter : null;
+  return {
+    activityId,
+    activity: activityName || '未核实的活动名称',
+    encounter: encounterName || '未核实的进度节点',
+    officialName: Boolean(activityName && encounterName)
+  };
 }
 
 function getRect(region, width, height) {
@@ -117,25 +134,47 @@ function headerAlias(line, aliases) {
   return null;
 }
 
-function encounterMatch(line, encounters) {
-  const text = normalizedText(line.text);
-  for (const entry of encounters || []) {
-    for (const alias of entry.aliases || []) {
-      const normalizedAlias = normalizedText(alias);
-      if (!normalizedAlias) continue;
-      if (/^\d+$/.test(alias.trim())) {
-        const numberPattern = new RegExp(`(^|\\D)${alias.trim()}(\\D|$)`);
-        if (numberPattern.test(line.text)) return entry;
-      } else if (text.includes(normalizedAlias)) {
-        return entry;
-      }
-    }
-  }
-  return null;
+function encounterPatterns(encounters) {
+  const existing = ENCOUNTER_PATTERNS.get(encounters);
+  if (existing) return existing;
+  const patterns = encounters.flatMap(entry => (entry.aliases || []).flatMap(alias => {
+    const key = normalizedText(alias.normalize('NFKC'));
+    if (!key || /^\d+$/.test(key)) return [];
+    const characters = Array.from(key).join('[\\s\\p{P}]*');
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d{1,2}\\s*[-:.]?\\s*)?${characters}(?![\\p{L}\\p{N}])`, 'giu');
+    return [{ entry, pattern, length: key.length }];
+  }));
+  ENCOUNTER_PATTERNS.set(encounters, patterns);
+  return patterns;
 }
 
-function isMaster(line) {
-  return /\(\s*m\s*\)|\bmaster\b|(?:^|\s)m(?:\s|$)/i.test(line.text);
+function isMasterSuffix(text) {
+  return /^[\s\p{P}]*(?:master|m|大师)(?![\p{L}\p{N}])/iu.test(text);
+}
+
+function readEncounterLine(line, encounters) {
+  if (!encounters.length) return [];
+  const text = line.text.normalize('NFKC');
+  const occurrences = [];
+  for (const { entry, pattern, length } of encounterPatterns(encounters)) {
+    for (const match of text.matchAll(pattern)) {
+      occurrences.push({ entry, length, start: match.index, end: match.index + match[0].length });
+    }
+  }
+  // Prefer complete aliases at the same position, while retaining other labels on the row.
+  occurrences.sort((left, right) => right.length - left.length || left.start - right.start);
+  const selected = [];
+  for (const match of occurrences) {
+    if (selected.every(other => match.end <= other.start || match.start >= other.end)) selected.push(match);
+  }
+  selected.sort((left, right) => left.start - right.start);
+  if (selected.length) return selected.map(({ entry, end }, i) => ({
+    entry, master: isMasterSuffix(text.slice(end, selected[i + 1]?.start))
+  }));
+
+  const slot = /^\s*(?:encounter\s+)?(\d{1,2})([\s\p{P}]*(?:master|normal|[mn]|大师|普通)?[\s\p{P}]*)$/iu.exec(text);
+  const entry = slot && encounters.find(item => item.aliases?.includes(slot[1]));
+  return entry ? [{ entry, master: isMasterSuffix(slot[2]) }] : [];
 }
 
 function extractQueue(words, region, width, height) {
@@ -154,52 +193,48 @@ function parseOcrResult(ocrResult, options = {}) {
   const listRect = getRect(regionSet.list, ocrResult.width, ocrResult.height);
   const wordsInList = ocrResult.words.filter((word) => typeof word.text === 'string' && isInside(word, listRect, ocrResult.width, ocrResult.height));
   const queueLength = extractQueue(ocrResult.words, regionSet.queue, ocrResult.width, ocrResult.height);
+  const dynamicSections = options.isScreenshot === true ? [] :
+    layoutSections(ocrResult.words, ocrResult.width, ocrResult.height, DATA.activities, canonicalChannel(options.channel));
   const sectionsSeen = new Set();
   const reports = [];
+  const progressKeys = new Set();
 
-  for (const section of profile.sections || []) {
+  for (const section of dynamicSections.length ? dynamicSections : profile.sections || []) {
     const [x, y, sectionWidth, sectionHeight] = section.box;
-    const cell = {
+    const dynamic = Number.isFinite(section.headerY);
+    const cell = dynamic ? getRect({ x, y, width: sectionWidth, height: sectionHeight }, ocrResult.width, ocrResult.height) : {
       left: listRect.left + x * (listRect.right - listRect.left),
       top: listRect.top + y * (listRect.bottom - listRect.top),
       right: listRect.left + (x + sectionWidth) * (listRect.right - listRect.left),
       bottom: listRect.top + (y + sectionHeight) * (listRect.bottom - listRect.top)
     };
     const lines = wordLines(wordsInList, cell, ocrResult.width, ocrResult.height);
-    let headerIndex = -1;
-    let matchedAlias = null;
-    for (let index = 0; index < lines.length; index += 1) {
-      const match = headerAlias(lines[index], section.headerAliases);
-      if (match !== null) {
-        headerIndex = index;
-        matchedAlias = match;
-        break;
-      }
-    }
-    if (headerIndex < 0) continue;
+    const matchedHeader = dynamic ? null : lines.find(line => headerAlias(line, section.headerAliases) !== null);
+    if (!dynamic && !matchedHeader) continue;
     sectionsSeen.add(section);
 
     const activityData = DATA.activities[section.activityId] || null;
     const knownActivity = activityData && section.activityId !== 'unknownRaid';
-    const activity = knownActivity ? activityData.activity : matchedAlias;
-    const activityCode = knownActivity ? activityData.activityCode : matchedAlias;
+    const activityCode = knownActivity ? activityData.activityCode : headerAlias(matchedHeader, section.headerAliases);
     const encounterList = activityData?.encounters || [];
-    const headerLine = lines[headerIndex];
+    const headerBottom = dynamic ? section.headerY * ocrResult.height + 4 :
+      matchedHeader.centerY + Math.max(4, matchedHeader.height * 0.45);
 
     for (const line of lines) {
-      if (line.centerY <= headerLine.centerY + Math.max(4, headerLine.height * 0.45)) continue;
-      const matchedEncounter = encounterMatch(line, encounterList);
-      if (!matchedEncounter) continue;
-      const master = isMaster(line);
-      const report = {
-        activity,
-        activityCode,
-        encounter: matchedEncounter.encounter,
-        encounterCode: matchedEncounter.encounterCode,
-        difficulty: master ? '大师' : '普通',
-        difficultyCode: master ? 'M' : 'N'
-      };
-      reports.push(report);
+      if (line.centerY <= headerBottom) continue;
+      for (const { entry, master } of readEncounterLine(line, encounterList)) {
+        const report = {
+          ...checkpointNames(section.activityId, entry.encounterCode),
+          activityCode,
+          encounterCode: entry.encounterCode,
+          difficulty: master ? '大师' : '普通',
+          difficultyCode: master ? 'M' : 'N'
+        };
+        const key = `${report.activityId}/${report.encounterCode}/${report.difficultyCode}`;
+        if (progressKeys.has(key)) continue;
+        progressKeys.add(key);
+        reports.push(report);
+      }
     }
   }
 
@@ -214,14 +249,15 @@ function resolveWorkerPath() {
   return regularPath;
 }
 
-function runWindowsOcr(imageBuffer) {
+function runWindowsOcr(imageBuffer, preferEnglish) {
   if (process.platform !== 'win32') return Promise.reject(new Error('Windows OCR is only available on Windows.'));
   const workerPath = resolveWorkerPath();
   if (!fs.existsSync(workerPath)) return Promise.reject(new Error('Windows OCR is unavailable. Install or repair the application package.'));
 
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', workerPath
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', workerPath,
+      ...(preferEnglish ? ['-PreferEnglish'] : [])
     ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
@@ -276,12 +312,21 @@ async function recognizeImage(imageBuffer, { channel, isScreenshot = false } = {
   if (!Buffer.isBuffer(imageBuffer)) throw new TypeError('recognizeImage expects a Buffer.');
   if (imageBuffer.length === 0 || imageBuffer.length > MAX_IMAGE_BYTES) throw new RangeError('Image must be between 1 byte and 6 MiB.');
   if (typeof isScreenshot !== 'boolean') throw new TypeError('isScreenshot must be a boolean.');
-  const ocrResult = await runWindowsOcr(imageBuffer);
-  return parseOcrResult(ocrResult, { channel, isScreenshot });
+  const options = { channel, isScreenshot };
+  const preferEnglish = !isScreenshot && CHANNELS.includes(canonicalChannel(channel));
+  const ocr = await runWindowsOcr(imageBuffer, preferEnglish);
+  const parsed = parseOcrResult(ocr, options);
+  if (!Array.isArray(ocr.alternateWords)) return parsed;
+  const fallback = parseOcrResult({ ...ocr, words: ocr.alternateWords }, options);
+  // Keep difficulty from the preferred recognizer where both engines found the same checkpoint.
+  const primaryCheckpoints = new Set(parsed.reports.map(report => `${report.activityId}/${report.encounterCode}`));
+  return result(parsed.recognized || fallback.recognized, parsed.queueLength ?? fallback.queueLength,
+    [...parsed.reports, ...fallback.reports.filter(report => !primaryCheckpoints.has(`${report.activityId}/${report.encounterCode}`))]);
 }
 
 module.exports = {
   recognizeImage,
+  checkpointNames,
   // Export the deterministic parser/profile helpers for tests and offline integrations.
   parseOcrResult,
   resolveProfile

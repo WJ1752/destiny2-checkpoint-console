@@ -63,7 +63,9 @@ try {
         if ($legacy.StatusCode -ne 405) { throw "Legacy API route $route returned HTTP $($legacy.StatusCode), expected 405." }
     }
     $state = $appResponse.Content | ConvertFrom-Json
-    if ($state.capabilities.chatSending -ne $false -or $state.capabilities.twitchDeveloperAppRequired -ne $false) { throw 'State must report that chat sending and a Twitch developer app are not required or available.' }
+    if ($state.twitch.connected -ne $false -or $state.capabilities.chatSending -ne $false -or $state.monitor.channels.Count -ne 7) {
+        throw 'Fresh state must show seven monitored channels and no Twitch chat authorization.'
+    }
     if ($ReleaseRoot) { "PASS: bundled Node at $nodePath runs from $workingDirectory." }
     'PASS: dynamic loopback D2_READY, one-time header bootstrap, secure cookie, authenticated API, invalid-key/direct-bootstrap rejection, screen-scan Origin enforcement, malformed image rejection, and legacy auth/send route removal.'
 } finally {

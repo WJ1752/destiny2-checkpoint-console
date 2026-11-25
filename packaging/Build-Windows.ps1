@@ -2,7 +2,7 @@
 param(
     [string]$Configuration = 'Release',
     [string]$RuntimeIdentifier = 'win-x64',
-    [string]$NodeVersion = '22.18.0',
+    [string]$NodeVersion = '22.23.3',
     [string]$OutputDirectory = 'release'
 )
 
@@ -37,7 +37,7 @@ if (-not $dotnetExe) { throw '.NET 10 SDK is required to build the Windows launc
 
 $desktopSource = Join-Path $repo 'desktop'
 if (-not (Test-Path -LiteralPath $desktopSource)) { throw 'The integrated desktop service folder is missing. Run this after the desktop service implementation is ready.' }
-$requiredDesktopFiles = @('main.js','vision.js','vision-ocr.ps1','vision-data.json','ui/index.html','ui/app.js','ui/styles.css')
+$requiredDesktopFiles = @('main.js','twitch.js','checkpoint-sources.js','vision.js','vision-layout.js','vision-ocr.ps1','vision-data.json','ui/index.html','ui/app.js','ui/styles.css','ui/assets/orbital-watch.webp')
 $missingDesktopFiles = @($requiredDesktopFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $desktopSource $_)) })
 if ($missingDesktopFiles.Count -gt 0) { throw "Desktop integration is incomplete. Missing: $($missingDesktopFiles -join ', ')" }
 
@@ -46,8 +46,6 @@ if (Test-Path -LiteralPath $release) { Remove-Item -LiteralPath $release -Recurs
 New-Item -ItemType Directory -Path $appStage,$runtimeStage -Force | Out-Null
 # Copy executable/static source only. Personal data, credentials, caches, logs, and dependencies
 # are intentionally excluded even if someone leaves them below desktop/ while developing.
-$excludedName = @('.env', '.env.*', 'credentials.json', 'tokens.json', '*.db', '*.sqlite', '*.sqlite3', '*.log', 'node_modules')
-$allowedDesktopFiles = @('main.js','vision.js','vision-ocr.ps1','vision-data.json','ui/index.html','ui/app.js','ui/styles.css')
 foreach ($relative in $requiredDesktopFiles) {
     $file = Get-Item -LiteralPath (Join-Path $desktopSource $relative)
     $target = Join-Path $appStage (Join-Path 'desktop' $relative)
