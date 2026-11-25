@@ -4,10 +4,10 @@ Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查
 
 ## 使用
 
-1. 解压完整便携包，双击 `D2Checkpoint.exe`。点击「一键读取进度」，程序会在内置 Twitch 窗口依次读取监测频道。请保持该窗口在前台。取到画面但识别结果过少时会在同一频道复查一次，工作台会汇总该频道本轮识别到的进度。
+1. 解压完整便携包，双击 `D2Checkpoint.exe`。勾选「自动轮询」后，程序会在后台依次读取监测频道，每轮结束约 2 分钟后再读。设置会保留，工作台收起到托盘后仍可轮询。也可以点击「一键读取进度」立即开始手动读取，手动读取时请保持内置 Twitch 窗口在前台。
 2. 默认频道为 `d2checkpoints`、`soloraidsbot`、`luckbot9`、`destinycheckpoints`、`travelerschosenteam`、`d2chests` 和 `destiny2checkpoints`。两张不同画面都识别到同一节点后，工作台将其标为已确认。也可打开单个频道手动识别，或导入浏览器里的直播截图。
 3. 点击工作台的 Twitch 登录入口，在程序打开的 Twitch 官方网页中登录自己的账号。登录和账号验证由 Twitch 页面处理。
-4. 输入完整 Bungie ID（例如 `Guardian#1234`），选择活动节点和难度，点击“匹配最佳频道”。工作台优先比较等待估时和队列长度。在工作台确认频道和指令后点击“发送”，程序等聊天编辑器接收指令，再提交一次。是否入队以频道机器人回复为准。
+4. 工作台会显示直播看板上识别到的队列人数和开放或关闭状态。输入完整 Bungie ID（例如 `Guardian#1234`），选择活动节点和难度，点击「匹配最佳频道」。工作台会跳过队列已关闭的频道，并比较等待估时和队列长度。确认频道和指令后点击「发送」，是否入队以频道机器人回复为准。
 
 程序内网页登录和聊天发送使用同一个 Twitch 网页会话。分发者也可通过 `D2_TWITCH_CLIENT_ID` 启用可选 API 授权，用于每分钟检查这些频道的公开直播预览。 [Twitch 应用注册](https://dev.twitch.tv/docs/authentication/register-app/) · [直播接口](https://dev.twitch.tv/docs/api/reference/streams#get-streams)
 
@@ -43,5 +43,5 @@ npm test
 - `desktop/main.js`：仅监听回环地址的本地会话、频道监测、进度推荐与申请。
 - `desktop/twitch.js`、`desktop/checkpoint-sources.js`：Twitch 官方接口、已核实的频道指令及其来源。
 - `desktop/vision.js`、`desktop/vision-ocr.ps1`：画面解析与本机 Windows OCR；图片通过标准输入和内存流处理。
-- `launcher/Program.cs`：Windows 托盘启动器、本机工作台和隔离的 Twitch WebView2 窗口；页面变化或失焦时停止捕获。
+- `launcher/Program.cs` 提供 Windows 托盘启动器、本机工作台以及用于手动读取和后台轮询的 Twitch WebView2 窗口。
 - `desktop/ui/`：简体中文本机工作台。

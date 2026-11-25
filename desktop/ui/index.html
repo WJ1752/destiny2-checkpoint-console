@@ -81,6 +81,10 @@
             <button id="cancel-progress-read" class="button button-quiet hidden" type="button">取消读取</button>
             <a id="read-import" class="button button-outline hidden" href="#import">导入直播截图</a>
           </div>
+          <div id="auto-progress-control" class="auto-progress-control hidden">
+            <label><input id="auto-progress-read" type="checkbox" aria-describedby="auto-progress-status" disabled> 自动轮询</label>
+            <span id="auto-progress-status"></span>
+          </div>
           <progress id="progress-read-meter" class="read-meter hidden" max="1" value="0" aria-label="频道读取进度"></progress>
           <ul id="progress-read-results" class="read-results hidden" aria-label="各频道读取结果"></ul>
         </section>

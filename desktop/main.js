@@ -32,7 +32,7 @@ const UI_ASSETS = new Set(['app.js', 'styles.css', 'assets/orbital-watch.webp'])
 let bootstrapUsed = false;
 process.env.D2_LAUNCH_KEY = '';
 let sessionId = crypto.randomBytes(32).toString('base64url');
-let settings = { watchedChannels: [] };
+let settings = { watchedChannels: [], autoProgressRead: false };
 let reports = [];
 let channels = new Map();
 const queueObservations = new Map();
@@ -54,23 +54,30 @@ try {
   if (saved && typeof saved === 'object') {
     const savedChannels = Array.isArray(saved.settings?.watchedChannels) ? saved.settings.watchedChannels : [];
     settings.watchedChannels = [...new Set(savedChannels.map(cleanLogin).filter(Boolean))].slice(0, 100);
+    settings.autoProgressRead = saved.settings?.autoProgressRead === true;
     const currentSchema = saved.schema === 2;
     reports = currentSchema && Array.isArray(saved.reports) ? saved.reports.slice(0, 500).filter(report => report && typeof report === 'object').map(report => ({
       ...report, ...checkpointNames(report.activityId, report.encounterCode), status: 'candidate', confidence: '等待两张新画面确认'
     })) : [];
     for (const item of currentSchema && Array.isArray(saved.channels) ? saved.channels.slice(0, 100) : []) {
       const login = cleanLogin(item?.login); if (!login) continue;
-      channels.set(login, { login, displayName: login, lastFrameAt: null, queueLength: Number.isFinite(item.queueLength) ? item.queueLength : null, lastFingerprint: null, previousKeys: new Set() });
+      const channel = ensureChannel(login);
+      channel.queueLength = validQueueLength(item.queueLength) ? item.queueLength : null;
+      channel.queueLengthAt = Number.isFinite(item.queueLengthAt) ? item.queueLengthAt : null;
+      channel.queueStatus = validQueueStatus(item.queueStatus) ? item.queueStatus : null;
+      channel.queueStatusAt = Number.isFinite(item.queueStatusAt) ? item.queueStatusAt : null;
     }
     for (const report of reports) {
-      if (!channels.has(report.login) && channels.size < 100) channels.set(report.login, { login: report.login, displayName: report.displayName || report.login, lastFrameAt: null, queueLength: null, lastFingerprint: null, previousKeys: new Set() });
+      if (!channels.has(report.login) && channels.size < 100) ensureChannel(report.login).displayName = report.displayName || report.login;
     }
-    for (const login of settings.watchedChannels) if (!channels.has(login) && channels.size < 100) channels.set(login, { login, displayName: login, lastFrameAt: null, queueLength: null, lastFingerprint: null, previousKeys: new Set() });
+    for (const login of settings.watchedChannels) if (channels.size < 100) ensureChannel(login);
   }
 } catch {}
 
 function persist() {
-  const serializableChannels = [...channels.values()].map(({ login, displayName, queueLength }) => ({ login, displayName, queueLength }));
+  const serializableChannels = [...channels.values()].map(({ login, displayName, queueLength, queueLengthAt, queueStatus, queueStatusAt }) => ({
+    login, displayName, queueLength, queueLengthAt, queueStatus, queueStatusAt
+  }));
   const data = JSON.stringify({ schema: 2, settings, reports: reports.slice(-500), channels: serializableChannels, savedAt: new Date().toISOString() });
   const task = dbWriteChain.catch(() => {}).then(() => fs.promises.writeFile(`${STATE_FILE}.tmp`, data, { mode: 0o600 }).then(() => fs.promises.rename(`${STATE_FILE}.tmp`, STATE_FILE)));
   dbWriteChain = task.catch(() => {});
@@ -261,9 +268,18 @@ function ensureChannel(login, protectedChannels = settings.watchedChannels) {
     queueObservations.delete(removable.login);
     for (const key of recognizedFrames.keys()) if (key.startsWith(`${removable.login}/`)) recognizedFrames.delete(key);
   }
-  channel = { login, displayName: login, lastFrameAt: null, queueLength: null, lastFingerprint: null, previousKeys: new Set() };
+  channel = { login, displayName: login, lastFrameAt: null, queueLength: null, queueLengthAt: null, queueStatus: null, queueStatusAt: null,
+    lastFingerprint: null, previousKeys: new Set() };
   channels.set(login, channel);
   return channel;
+}
+function validQueueLength(value) { return Number.isInteger(value) && value >= 0; }
+function validQueueStatus(value) { return value === 'open' || value === 'closed'; }
+function queueFor(channel, now = Date.now()) {
+  return {
+    queueLength: channel?.lastFrameAt && now - channel.queueLengthAt < REPORT_TTL_MS ? channel.queueLength : null,
+    queueStatus: channel?.lastFrameAt && now - channel.queueStatusAt < REPORT_TTL_MS ? channel.queueStatus : null
+  };
 }
 function estimateFor(login, queueLength) {
   const observations = (queueObservations.get(login) || []).filter(item => Date.now() - item.at < 30 * 60_000 && Number.isFinite(item.queueLength));
@@ -282,11 +298,12 @@ function estimateFor(login, queueLength) {
 }
 function summarizeChannel(channel) {
   const age = channel.lastFrameAt ? Date.now() - Date.parse(channel.lastFrameAt) : Infinity;
+  const queue = queueFor(channel);
   const currentReports = reports.filter(report => report.login === channel.login && reportFresh(report));
-  return { login: channel.login, displayName: channel.displayName || channel.login, lastFrameAt: channel.lastFrameAt,
-    queueLength: age < REPORT_TTL_MS && Number.isFinite(channel.queueLength) ? channel.queueLength : null,
+  return { login: channel.login, displayName: channel.displayName || channel.login, lastFrameAt: channel.lastFrameAt, ...queue,
     watching: age < 2 * 60_000, frameAgeSeconds: Number.isFinite(age) ? Math.max(0, Math.round(age / 1000)) : null,
-    reports: currentReports.slice(-20), estimate: estimateFor(channel.login, age < REPORT_TTL_MS ? channel.queueLength : null),
+    reports: currentReports.slice(-20).map(report => ({ ...report, ...queue })),
+    estimate: estimateFor(channel.login, queue.queueStatus === 'closed' ? null : queue.queueLength),
     url: `https://www.twitch.tv/${encodeURIComponent(channel.login)}` };
 }
 function compareRecommendations(a, b) {
@@ -302,15 +319,15 @@ function sourceIsCurrent(report) {
 }
 
 function rankRecommendations() {
-  return reports.filter(report => {
+  return reports.flatMap(report => {
     const channel = channels.get(report.login);
-    return report.status === 'available' && reportFresh(report) && channel?.lastFrameAt &&
-      Date.now() - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS &&
-      sourceIsCurrent(report);
-  }).map(report => {
-    const channel = channels.get(report.login); const estimate = estimateFor(report.login, channel?.queueLength);
-    return { report, login: report.login, displayName: channel?.displayName || report.displayName || report.login,
-      queueLength: estimate.queueLength, estimatedMinutes: estimate.estimatedMinutes, confidence: estimate.confidence };
+    if (report.status !== 'available' || !reportFresh(report) || !channel?.lastFrameAt ||
+        Date.now() - Date.parse(channel.lastFrameAt) >= REPORT_TTL_MS || !sourceIsCurrent(report)) return [];
+    const queue = queueFor(channel);
+    if (queue.queueStatus === 'closed') return [];
+    const { estimatedMinutes, confidence } = estimateFor(report.login, queue.queueLength);
+    return [{ report: { ...report, ...queue }, login: report.login, displayName: channel.displayName || report.displayName || report.login,
+      ...queue, estimatedMinutes, confidence }];
   }).sort(compareRecommendations);
 }
 
@@ -383,13 +400,14 @@ function queueSelection(body, pickBest) {
   if (!bungieId) throw queueError(400, '请输入完整的 Bungie ID（名称#四位数字）。');
   const selected = reports.find(report => report.id === body.reportId && reportFresh(report));
   if (!selected) throw queueError(409, '该进度已过期，请刷新列表后重选。');
+  if (!pickBest && queueFor(channels.get(selected.login)).queueStatus === 'closed') throw queueError(409, '该频道队列已关闭，请重新匹配频道。');
   const eligible = rankRecommendations().filter(item => canRequest(item.report));
   const targetProgress = progressKey(selected);
   const sameProgress = report => progressKey(report) === targetProgress;
   const candidates = pickBest ? eligible.filter(item => sameProgress(item.report)) : eligible.filter(item => item.report.id === selected.id);
   for (const item of candidates) {
     const command = buildQueueCommand(item.report, bungieId);
-    if (command) return { reportId: item.report.id, login: item.login, command, queueLength: item.queueLength, estimatedMinutes: item.estimatedMinutes };
+    if (command) return { reportId: item.report.id, login: item.login, command, queueLength: item.queueLength, queueStatus: item.queueStatus, estimatedMinutes: item.estimatedMinutes };
   }
   throw queueError(409, '暂时没有已确认可用且指令已核实的对应频道。');
 }
@@ -422,9 +440,10 @@ function buildState() {
   const recentReports = reports.filter(reportFresh).map(report => {
     const channel = channels.get(report.login);
     const current = channel?.lastFrameAt && now - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS && sourceIsCurrent(report);
-    const item = { ...report, encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
+    const queue = queueFor(channel, now);
+    const item = { ...report, ...queue, encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
     if (!current && report.status === 'available') return { ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false };
-    return { ...item, canRequest: report.status === 'available' && canRequest(report) };
+    return { ...item, canRequest: report.status === 'available' && queue.queueStatus !== 'closed' && canRequest(report) };
   });
   const account = twitch.status();
   return { app: { state: lastError ? 'error' : 'ready', message: lastError || '本机检查点工作台已就绪', error: lastError, lastScanAt },
@@ -447,17 +466,26 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
       channel.streamId = streamId;
       channel.lastFingerprint = null;
       channel.previousKeys.clear();
+      channel.queueLengthAt = null;
+      channel.queueStatusAt = null;
       queueObservations.delete(login);
     }
-  if (channel.lastFingerprint === fingerprint) return { login, duplicate: true, recognized: false, reports: reports.filter(report => report.login === login && reportFresh(report)), message: '画面没有变化；等待播放画面更新后再识别。' };
+  if (channel.lastFingerprint === fingerprint) return { login, duplicate: true, recognized: false, ...queueFor(channel),
+    reports: reports.filter(report => report.login === login && reportFresh(report)), message: '画面没有变化；等待播放画面更新后再识别。' };
   const result = await recognizeImage(image, { channel: login, isScreenshot });
   if (!active()) return { login, duplicate: false, recognized: false };
   const observedAt = new Date().toISOString(); const now = Date.now();
   channel.lastFingerprint = fingerprint; channel.lastFrameAt = observedAt; channel.watching = true;
-  channel.queueLength = Number.isFinite(result?.queueLength) ? result.queueLength : null;
-  if (Number.isFinite(channel.queueLength)) {
+  if (validQueueLength(result?.queueLength)) {
+    channel.queueLength = result.queueLength;
+    channel.queueLengthAt = now;
     const history = queueObservations.get(login) || []; history.push({ at: now, queueLength: channel.queueLength }); queueObservations.set(login, history.slice(-30));
   }
+  if (validQueueStatus(result?.queueStatus)) {
+    channel.queueStatus = result.queueStatus;
+    channel.queueStatusAt = now;
+  }
+  const queue = queueFor(channel, now);
   const nextKeys = new Set();
   if (result?.recognized) {
     for (const found of result.reports || []) {
@@ -469,7 +497,7 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
       const record = { id: existing?.id || crypto.randomUUID(), login, displayName: channel.displayName || login,
         activity: found.activity, activityId: found.activityId, activityCode: found.activityCode, encounter: found.encounter, encounterCode: found.encounterCode,
         officialName: found.officialName,
-        difficulty: found.difficulty, difficultyCode: found.difficultyCode, queueLength: channel.queueLength,
+        difficulty: found.difficulty, difficultyCode: found.difficultyCode, ...queue,
         confidence: distinctConsecutive ? '连续识别两张不同画面' : '单张画面候选，请复核', status: distinctConsecutive ? 'available' : 'candidate', observedAt,
         source, streamId };
       if (existing) Object.assign(existing, record); else reports.push(record);
@@ -490,8 +518,8 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
   reports = reports.filter(report => now - Date.parse(report.observedAt || 0) < REPORT_TTL_MS).slice(-500);
   lastScanAt = observedAt; lastError = '';
   await persist();
-  const payload = { login, duplicate: false, recognized: Boolean(result?.recognized), queueLength: channel.queueLength,
-    reports: reports.filter(report => report.login === login && reportFresh(report)), result };
+  const payload = { login, duplicate: false, recognized: Boolean(result?.recognized), ...queue,
+    reports: reports.filter(report => report.login === login && reportFresh(report)).map(report => ({ ...report, ...queue })), result };
   // State persisted locally; dashboard reads it on demand.
   return payload;
   } finally {
@@ -516,6 +544,13 @@ function makeServer() {
         reply(res, 200, fs.readFileSync(path.join(UI_ROOT, name)), { 'Content-Type': MIME[path.extname(name)] }); return;
       }
       if (req.method === 'GET' && url.pathname === '/api/state') { sendJson(res, 200, buildState()); return; }
+      if (req.method === 'POST' && url.pathname === '/api/progress-read/settings') {
+        const { enabled } = await readBody(req, 4000);
+        if (typeof enabled !== 'boolean') { sendJson(res, 400, { error: '请选择是否启用自动轮询。' }); return; }
+        settings.autoProgressRead = enabled;
+        await persist();
+        sendJson(res, 200, { enabled }); return;
+      }
       if (req.method === 'POST' && url.pathname === '/api/twitch/device') {
         const body = await readBody(req, 4000);
         sendJson(res, 200, await twitch.startDevice(body.clientId)); return;

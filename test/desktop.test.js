@@ -131,6 +131,9 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   const secondA = pngFrame(11);
   const firstB = pngFrame(80);
   const secondB = pngFrame(81);
+  const closedA = pngFrame(164);
+  const missingQueueA = pngFrame(165);
+  const openedA = pngFrame(166);
   const blankA = pngFrame(170);
   const postTemplarFrames = [pngFrame(201), pngFrame(202)];
   const jpegC = validJpegFrame();
@@ -143,6 +146,9 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   frames.set(crypto.createHash('sha256').update(secondA).digest('hex'), { recognized: true, queueLength: 3, reports: [report()] });
   frames.set(crypto.createHash('sha256').update(firstB).digest('hex'), { recognized: true, queueLength: 8, reports: [report()] });
   frames.set(crypto.createHash('sha256').update(secondB).digest('hex'), { recognized: true, queueLength: 7, reports: [report()] });
+  frames.set(crypto.createHash('sha256').update(closedA).digest('hex'), { recognized: true, queueLength: null, queueStatus: 'closed', reports: [report()] });
+  frames.set(crypto.createHash('sha256').update(missingQueueA).digest('hex'), { recognized: true, queueLength: null, queueStatus: null, reports: [report()] });
+  frames.set(crypto.createHash('sha256').update(openedA).digest('hex'), { recognized: true, queueLength: 0, queueStatus: 'open', reports: [report()] });
   frames.set(crypto.createHash('sha256').update(blankA).digest('hex'), { recognized: false, queueLength: null, reports: [] });
   for (const frame of postTemplarFrames) {
     frames.set(crypto.createHash('sha256').update(frame).digest('hex'), { recognized: true, queueLength: 1, reports: [{
@@ -237,6 +243,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     const initial = JSON.parse(stateBeforeScan.body);
     assert.equal(initial.capabilities.twitchDeveloperAppRequired, true);
     assert.equal(initial.capabilities.chatSending, false);
+    assert.equal(initial.settings.autoProgressRead, false);
 
     const noOrigin = await imageRequest(port, preferredChannel, firstA, { cookie });
     assert.equal(noOrigin.status, 403, 'mutating screen scans require the exact local Origin');
@@ -310,6 +317,12 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     const postJson = (requestPath, body, requestOrigin = origin) => httpRequest(port, requestPath, 'POST', {
       Cookie: cookie, Origin: requestOrigin, 'Content-Type': 'application/json'
     }, Buffer.from(JSON.stringify(body)));
+    const autoProgressPath = '/api/progress-read/settings';
+    assert.equal((await postJson(autoProgressPath, { enabled: 'true' })).status, 400);
+    assert.deepEqual(JSON.parse((await postJson(autoProgressPath, { enabled: true })).body), { enabled: true });
+    assert.equal(JSON.parse((await httpRequest(port, '/api/state', 'GET', { Cookie: cookie })).body).settings.autoProgressRead, true);
+    assert.equal(JSON.parse(await fs.readFile(path.join(dataDir, 'state.json'), 'utf8')).settings.autoProgressRead, true);
+
     const bungieId = '测试玩家#0123';
     const previewResponse = await postJson('/api/queue/preview', { reportId: bReport.id, bungieId });
     assert.equal(previewResponse.status, 200);
@@ -342,6 +355,30 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     assert.equal((await postJson('/api/queue/web-send', webRequest)).status, 409);
     assert.equal((await postJson('/api/queue/send', webRequest)).status, 409);
     assert.equal(sentMessages.length, 1, 'the native webpage route should not call the Twitch API');
+
+    const pendingPreview = await postJson('/api/queue/preview', { reportId: aReport.id, bungieId });
+    assert.equal(pendingPreview.status, 200);
+    for (const frame of [closedA, missingQueueA]) {
+      const observed = await imageRequest(port, preferredChannel, frame, { cookie, origin });
+      assert.equal(observed.status, 200);
+      const queue = JSON.parse(observed.body);
+      assert.equal(queue.queueStatus, 'closed');
+      assert.equal(queue.queueLength, 3, 'an OCR miss must keep the latest fresh queue count');
+    }
+    const closedState = desktop.buildState();
+    const closedReport = closedState.reports.find(item => item.id === aReport.id);
+    assert.equal(closedReport.status, 'available');
+    assert.equal(closedReport.canRequest, false);
+    assert.equal(closedState.streams.find(item => item.login === preferredChannel).queueStatus, 'closed');
+    assert.equal((await postJson('/api/queue/web-send', { ...JSON.parse(pendingPreview.body), bungieId })).status, 409);
+    const alternative = await postJson('/api/queue/preview', { reportId: aReport.id, bungieId });
+    assert.equal(JSON.parse(alternative.body).login, otherChannel, 'a closed queue must not win matching');
+
+    assert.equal((await imageRequest(port, preferredChannel, openedA, { cookie, origin })).status, 200);
+    const reopened = await postJson('/api/queue/preview', { reportId: aReport.id, bungieId });
+    assert.equal(reopened.status, 200);
+    assert.equal(JSON.parse(reopened.body).queueStatus, 'open');
+    assert.equal(JSON.parse(reopened.body).queueLength, 0);
 
     for (const frame of postTemplarFrames) {
       assert.equal((await imageRequest(port, postTemplarChannel, frame, { cookie, origin })).status, 200);

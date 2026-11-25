@@ -11,12 +11,18 @@ const model = {
   preview: null,
   queueAttempted: false,
   pendingWebSend: null,
-  progressRead: null
+  progressRead: null,
+  autoRead: null,
+  autoReadSaving: false,
+  autoReadTimer: null,
+  nextAutoReadAt: 0
 };
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const WEB_SEND_TIMEOUT_MS = 45_000;
 const CHANNEL_READ_TIMEOUT_MS = 23_000;
 const FRAME_READ_TIMEOUT_MS = 25_000;
+const AUTO_READ_INTERVAL_MS = 2 * 60_000;
+const AUTO_READ_BUSY_DELAY_MS = 15_000;
 const $ = id => document.getElementById(id);
 const ui = {
   monitorStatus: $('monitor-status'), channelTotal: $('channel-total'),
@@ -27,6 +33,7 @@ const ui = {
   manualResult: $('manual-result'), toast: $('toast'),
   readProgress: $('read-progress'), cancelRead: $('cancel-progress-read'), readStatus: $('progress-read-status'), readImport: $('read-import'),
   readMeter: $('progress-read-meter'), readResults: $('progress-read-results'),
+  autoReadControl: $('auto-progress-control'), autoRead: $('auto-progress-read'), autoReadStatus: $('auto-progress-status'),
   accountPanel: $('twitch-account-panel'), accountStatus: $('account-status'), connectControls: $('connect-controls'),
   connect: $('twitch-connect'), authorization: $('device-authorization'),
   deviceCode: $('device-code'), deviceLink: $('device-link'), checkAuth: $('check-auth'),
@@ -83,6 +90,12 @@ function reportEncounter(report) {
 function reportLabel(report) {
   return `${reportActivity(report)} · ${reportEncounter(report)}`;
 }
+function queueLabel(item, fallback = '队列未知') {
+  if (item.queueStatus === 'closed') return '队列已关闭';
+  const count = item.queueLength == null ? '' : `队列 ${item.queueLength} 人`;
+  if (item.queueStatus === 'open') return count ? `队列开放 · ${count}` : '队列开放 · 人数未知';
+  return count || fallback;
+}
 function isWatching(channel) {
   if (channel?.state === 'online') return true;
   if (channel?.state === 'offline') return false;
@@ -130,7 +143,7 @@ function renderSideChannels(channels) {
     ui.sideChannels.innerHTML = '<div class="empty-mini">还没有频道</div>';
     return;
   }
-  ui.sideChannels.innerHTML = channels.slice(0, 14).map(channel => `<button class="side-channel ${channel.login === model.currentLogin ? 'selected' : ''}" data-select-login="${escapeHtml(channel.login)}"><span class="channel-dot ${isWatching(channel) ? 'online' : ''}"></span><span class="side-channel-main"><b>${escapeHtml(channel.displayName || channel.login)}</b><small>${channel.state === 'offline' ? '离线' : isWatching(channel) ? `${channel.queueLength == null ? '队列未知' : `队列 ${channel.queueLength}`}` : '等待观察'}</small></span><span class="side-live">${channel.state === 'online' ? '在线' : isWatching(channel) ? '最近已识别' : ''}</span></button>`).join('');
+  ui.sideChannels.innerHTML = channels.slice(0, 14).map(channel => `<button class="side-channel ${channel.login === model.currentLogin ? 'selected' : ''}" data-select-login="${escapeHtml(channel.login)}"><span class="channel-dot ${isWatching(channel) ? 'online' : ''}"></span><span class="side-channel-main"><b>${escapeHtml(channel.displayName || channel.login)}</b><small>${channel.state === 'offline' ? '离线' : escapeHtml(queueLabel(channel, isWatching(channel) ? '队列未知' : '等待观察'))}</small></span><span class="side-live">${channel.state === 'online' ? '在线' : isWatching(channel) ? '最近已识别' : ''}</span></button>`).join('');
 }
 function renderWatchedChannels(channels) {
   if (!ui.channelList) return;
@@ -142,7 +155,7 @@ function renderWatchedChannels(channels) {
     const watching = isWatching(channel);
     const estimate = channel.estimate || {};
     const eta = estimate.estimatedMinutes == null ? '等待未知' : `约 ${estimate.estimatedMinutes} 分钟`;
-    const queue = channel.queueLength == null ? '队列未知' : `队列 ${channel.queueLength}`;
+    const queue = queueLabel(channel);
     const status = channel.error || (channel.state === 'offline' ? '离线' : channel.state === 'online' ? '在线' : watching ? '最近已识别' : '等待观察');
     return `<button class="channel-row ${channel.login === model.currentLogin ? 'selected' : ''}" data-select-login="${escapeHtml(channel.login)}"><span class="channel-row-dot ${watching ? 'online' : ''}"></span><span class="channel-row-main"><b>${escapeHtml(channel.displayName || channel.login)}</b><small>${escapeHtml(status)} · ${escapeHtml(queue)}</small></span><span class="channel-row-eta">${escapeHtml(eta)}</span></button>`;
   }).join('');
@@ -170,11 +183,11 @@ function renderReports(reports) {
   ui.reportList.innerHTML = ordered.map(report => {
     const confirmed = report.status === 'available';
     const translationNote = report.officialName === false ? ' · 官方译名待核实' : '';
-    const commandNote = confirmed && !report.canRequest ? ' · 指令待核实' : '';
+    const commandNote = confirmed && !report.canRequest && report.queueStatus !== 'closed' ? ' · 指令待核实' : '';
     return `<article class="report-card">
       <div class="report-status ${confirmed ? 'verified' : 'candidate'}"><i></i>${confirmed ? '连续画面确认' : '候选 · 请复核'}</div>
       <div class="report-main"><b>${escapeHtml(reportActivity(report))}</b><small>${escapeHtml(reportEncounter(report))}</small><small class="report-source">${escapeHtml(report.displayName || report.login || 'Twitch 频道')} · ${escapeHtml(fmtTime(report.observedAt))}${translationNote}${commandNote}</small></div>
-      <div class="report-queue">${report.queueLength == null ? '队列未知' : `队列 ${escapeHtml(report.queueLength)}`}</div>
+      <div class="report-queue">${escapeHtml(queueLabel(report))}</div>
     </article>`;
   }).join('');
 }
@@ -250,8 +263,8 @@ function renderQueue() {
   ui.copyQueue.classList.toggle('hidden', embedded);
   ui.queueChannel.classList.toggle('hidden', embedded);
   if (!model.preview) return;
-  const { login, command, queueLength, estimatedMinutes } = model.preview;
-  ui.queueRecommendation.textContent = `推荐频道 @${login} · ${queueLength == null ? '队列未知' : `队列 ${queueLength}`} · ${estimatedMinutes == null ? '等待时间未知' : `估计 ${estimatedMinutes} 分钟`}`;
+  const { login, command, estimatedMinutes } = model.preview;
+  ui.queueRecommendation.textContent = `推荐频道 @${login} · ${queueLabel(model.preview)} · ${estimatedMinutes == null ? '等待时间未知' : `估计 ${estimatedMinutes} 分钟`}`;
   ui.queueCommand.value = command;
   ui.queueChannel.href = `https://www.twitch.tv/popout/${encodeURIComponent(login)}/chat`;
 }
@@ -354,12 +367,14 @@ async function copyQueue() {
 function renderRecommendations(items) {
   if (!ui.recommendationList) return;
   const recommendations = Array.isArray(items) ? items : [];
-  const channels = selectedChannelList().filter(channel => (channel.reports || []).length || channel.queueLength != null);
+  const channels = selectedChannelList().filter(channel => channel.queueStatus !== 'closed' &&
+    ((channel.reports || []).length || channel.queueLength != null || channel.queueStatus === 'open'));
   const entries = recommendations.length ? recommendations.map(item => ({
     login: item.login || item.report?.login || '',
     displayName: item.displayName || item.report?.displayName || item.login || item.report?.login || '未知频道',
     label: item.report ? reportLabel(item.report) : '已观察频道',
     queueLength: item.queueLength,
+    queueStatus: item.queueStatus,
     estimatedMinutes: item.estimatedMinutes,
     confidence: item.confidence
   })) : channels.map(channel => ({
@@ -367,6 +382,7 @@ function renderRecommendations(items) {
     displayName: channel.displayName || channel.login,
     label: channel.reports?.length ? reportLabel(channel.reports[0]) : '已添加频道',
     queueLength: channel.queueLength,
+    queueStatus: channel.queueStatus,
     estimatedMinutes: channel.estimate?.estimatedMinutes,
     confidence: channel.estimate?.confidence
   }));
@@ -374,11 +390,13 @@ function renderRecommendations(items) {
     ui.recommendationList.innerHTML = '<div class="empty-mini">尚无可用的本机观察数据</div>';
     return;
   }
-  ui.recommendationList.innerHTML = entries.slice(0, 10).map(item => `<article class="recommend-row"><div class="recommend-top"><b>${escapeHtml(item.displayName)}</b><span>${item.estimatedMinutes == null ? '等待未知' : `约 ${escapeHtml(item.estimatedMinutes)} 分钟`}</span></div><small>${escapeHtml(item.label)} · ${item.queueLength == null ? '队列未知' : `队列 ${escapeHtml(item.queueLength)}`}</small><small class="recommend-confidence">${escapeHtml(item.confidence || '仅本机观察，样本不足时不估时')}</small></article>`).join('');
+  ui.recommendationList.innerHTML = entries.slice(0, 10).map(item => `<article class="recommend-row"><div class="recommend-top"><b>${escapeHtml(item.displayName)}</b><span>${item.estimatedMinutes == null ? '等待未知' : `约 ${escapeHtml(item.estimatedMinutes)} 分钟`}</span></div><small>${escapeHtml(item.label)} · ${escapeHtml(queueLabel(item))}</small><small class="recommend-confidence">${escapeHtml(item.confidence || '仅本机观察，样本不足时不估时')}</small></article>`).join('');
 }
 async function loadState(silent = true) {
   try {
     model.state = await api('/api/state');
+    if (model.autoRead === null) model.autoRead = model.state.settings?.autoProgressRead === true;
+    scheduleAutoProgressRead();
     renderState();
   } catch (error) {
     if (!silent) toast(error.message || '无法读取本机工作台状态。', 'error');
@@ -389,12 +407,69 @@ function monitoredChannelLogins() {
   const overview = model.state?.monitor?.channels || [];
   return [...new Set([...overview.map(channel => channel.login), ...(settings?.watchedChannels || [])].map(validLogin).filter(Boolean))];
 }
+function postProgressPollTimer(delayMs) {
+  try { webviewBridge()?.postMessage({ type: 'schedule-progress-poll', delayMs }); }
+  catch { /* The web timer remains available. */ }
+}
+function clearAutoProgressPoll() {
+  if (model.autoReadTimer === null) return;
+  clearTimeout(model.autoReadTimer);
+  model.autoReadTimer = null;
+  model.nextAutoReadAt = 0;
+  postProgressPollTimer(0);
+}
+function scheduleAutoProgressRead(delayMs = 1) {
+  if (!model.autoRead || !webviewBridge() || model.progressRead?.running || model.autoReadTimer !== null || !monitoredChannelLogins().length) return;
+  model.nextAutoReadAt = Date.now() + delayMs;
+  const timer = setTimeout(() => {
+    if (model.autoReadTimer === timer) runDueProgressPoll();
+  }, delayMs);
+  model.autoReadTimer = timer;
+  postProgressPollTimer(delayMs);
+  renderProgressRead();
+}
+function runDueProgressPoll() {
+  if (model.autoReadTimer === null) return;
+  clearAutoProgressPoll();
+  if (model.scanBusy || model.queueBusy || model.state?.monitor?.running) {
+    scheduleAutoProgressRead(AUTO_READ_BUSY_DELAY_MS);
+    return;
+  }
+  if (model.autoRead) void startProgressRead(true);
+}
+function checkDueProgressPoll() {
+  if (Date.now() + 50 >= model.nextAutoReadAt) runDueProgressPoll();
+}
+async function updateAutoProgressRead() {
+  const enabled = ui.autoRead.checked;
+  model.autoReadSaving = true;
+  renderProgressRead();
+  try {
+    const saved = await post('/api/progress-read/settings', { enabled });
+    model.autoRead = saved.enabled;
+    if (model.autoRead) scheduleAutoProgressRead();
+    else {
+      clearAutoProgressPoll();
+      if (model.progressRead?.automatic) cancelProgressRead();
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    model.autoReadSaving = false;
+    renderProgressRead();
+  }
+}
 function renderProgressRead() {
   const batch = model.progressRead;
   const running = Boolean(batch?.running);
   const available = Boolean(webviewBridge());
   const channelCount = monitoredChannelLogins().length;
   ui.readProgress.disabled = !available || !channelCount || running;
+  ui.autoReadControl.classList.toggle('hidden', !available);
+  ui.autoRead.checked = model.autoRead === true;
+  ui.autoRead.disabled = !available || model.autoRead === null || model.autoReadSaving;
+  ui.autoReadStatus.textContent = model.autoReadSaving ? '正在保存…' : model.nextAutoReadAt ?
+    `下轮约 ${fmtTime(model.nextAutoReadAt)}` : model.autoRead && running && batch.automatic ? '正在后台读取' : '每轮结束约 2 分钟后再读';
   ui.cancelRead.classList.toggle('hidden', !running || batch.cancelled);
   ui.readMeter.classList.toggle('hidden', !batch);
   ui.readResults.classList.toggle('hidden', !batch);
@@ -409,9 +484,10 @@ function renderProgressRead() {
   const stopped = batch.cancelled || batch.failed;
   ui.readMeter.max = batch.items.length;
   ui.readMeter.value = batch.completed;
-  if (stopped) ui.readStatus.textContent = `已停止 · 处理 ${progress} 个频道。`;
-  else if (running) ui.readStatus.textContent = `已处理 ${progress} · ${current ? `正在读取 @${current}` : '正在准备'}`;
-  else ui.readStatus.textContent = `已读取完成 · 处理 ${progress} 个频道。`;
+  const mode = batch.automatic ? '自动读取' : '读取';
+  if (stopped) ui.readStatus.textContent = `已停止${mode} · 处理 ${progress} 个频道。`;
+  else if (running) ui.readStatus.textContent = `${mode} ${progress} · ${current ? `正在读取 @${current}` : '正在准备'}`;
+  else ui.readStatus.textContent = `${mode}完成 · 处理 ${progress} 个频道。`;
   ui.readResults.innerHTML = batch.items.map(item => {
     const outcome = item.message || (item === batch.current ? '正在读取…' : stopped ? '未读取' : '等待');
     const state = item.error ? 'error' : item === batch.current ? 'active' : '';
@@ -438,7 +514,7 @@ function requestChannelFrames(batch, login) {
       cancelChannelRead(bridge, requestId);
     }, CHANNEL_READ_TIMEOUT_MS);
     batch.pending = { requestId, login, finish };
-    try { bridge.postMessage({ type: 'read-twitch-channel', login, requestId }); }
+    try { bridge.postMessage({ type: 'read-twitch-channel', login, requestId, background: batch.automatic }); }
     catch { finish({ frames: [], message: '无法请求桌面识别窗口。' }); }
   });
 }
@@ -473,16 +549,17 @@ function summarizeProgressReading(reading) {
     return { message: messages.join(' · ') || '未收到可识别画面。', error: Boolean(reading.error || !reading.repeated) };
   }
   const confirmed = (latestScan.reports || []).filter(report => report.status === 'available' && seen.has(observedProgressKey(report))).length;
-  const outcome = seen.size ? `读到 ${seen.size} 条进度，已确认 ${confirmed} 条` :
-    latestScan.queueLength == null ? '取到直播画面，未识别到进度' : `只读到队列 ${latestScan.queueLength}，未识别到进度`;
+  const outcome = seen.size ? `读到 ${seen.size} 条进度，已确认 ${confirmed} 条` : '未识别到进度';
   const quality = seen.size < 2 && reading.frameHeight > 0 && reading.frameHeight < 720 ? `画面最高 ${reading.frameHeight}p` : '';
-  return { message: [outcome, quality, reading.note, details].filter(Boolean).join(' · '), error: false };
+  return { message: [outcome, queueLabel(latestScan), quality, reading.note, details].filter(Boolean).join(' · '), error: false };
 }
-async function startProgressRead() {
+async function startProgressRead(automatic = false) {
   if (model.progressRead?.running || !webviewBridge()) return;
+  if (model.scanBusy) { toast('正在识别截图，请稍后读取频道进度。'); return; }
   const logins = monitoredChannelLogins();
   if (!logins.length) return;
-  const batch = { items: logins.map(login => ({ login })), running: true, cancelled: false, completed: 0,
+  clearAutoProgressPoll();
+  const batch = { items: logins.map(login => ({ login })), automatic, running: true, cancelled: false, completed: 0,
     current: null, pending: null, controller: new AbortController() };
   model.progressRead = batch;
   renderProgressRead();
@@ -504,7 +581,7 @@ async function startProgressRead() {
         const message = typeof response.message === 'string' ? response.message.trim() : '';
         reading.note = interrupted || frames.length < 2 ? message || (frames.length ? '只取到一张画面' : '没有获得直播画面。') : '';
         if (frames.length) await recognizeChannelFrames(batch, item.login, frames, reading);
-        if (attempt > 0 || interrupted || batch.cancelled || !reading.latestScan || reading.seen.size >= 2 || reading.error) break;
+        if (automatic || attempt > 0 || interrupted || batch.cancelled || !reading.latestScan || reading.seen.size >= 2 || reading.error) break;
         item.message = '正在同一频道重新取样…';
         renderProgressRead();
       }
@@ -522,6 +599,7 @@ async function startProgressRead() {
   } finally {
     batch.current = null;
     batch.running = false;
+    scheduleAutoProgressRead(AUTO_READ_INTERVAL_MS);
     renderProgressRead();
     void loadState(true);
   }
@@ -592,15 +670,15 @@ async function handleCapture(message) {
   if (!model.state?.settings?.watchedChannels?.includes(login)) {
     try { await api('/api/watch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login }) }); } catch { /* scan response remains authoritative */ }
   }
-  if (model.scanBusy) { toast('上一张截图仍在本机 OCR 中，忽略这张重叠截图。'); return; }
+  if (model.scanBusy || model.progressRead?.running) { toast('已有画面正在读取，请稍后再识别当前画面。'); return; }
   model.scanBusy = true;
   try {
     const bytes = decodeBase64Image(message.imageBase64);
     const result = await api(`/api/screen-scan?login=${encodeURIComponent(login)}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes });
     await loadState(true);
     if (result.duplicate) toast(result.message || '画面与上次相同；等待视频画面更新。');
-    else if (result.recognized) toast(`本机 OCR 已识别 ${Array.isArray(result.reports) ? result.reports.length : 0} 条候选，请人工核对。`);
-    else toast(result.message || '本次画面未识别到明确检查点，请确认视频正在播放且清晰。');
+    else if (result.result?.reports?.length) toast(`本机 OCR 已识别 ${result.result.reports.length} 条候选，请人工核对。`);
+    else toast(queueLabel(result, result.message || '本次画面未识别到明确进度或队列，请确认视频正在播放且清晰。'));
   } catch (error) {
     await loadState(true);
     toast(error.message || '本机截图识别失败。', 'error');
@@ -612,6 +690,10 @@ function onWebviewMessage(event) {
     try { message = JSON.parse(message); } catch { return; }
   }
   if (!message || typeof message !== 'object') return;
+  if (message.type === 'progress-poll-due') {
+    checkDueProgressPoll();
+    return;
+  }
   if (message.type === 'twitch-channel-read') {
     const pending = model.progressRead?.pending;
     if (pending && message.requestId === pending.requestId && message.login === pending.login) pending.finish(message);
@@ -644,6 +726,9 @@ async function recognizeManualImage() {
   if (file.size > MAX_IMAGE_BYTES) { toast('图片不能超过 6 MiB。', 'error'); return; }
   const login = validLogin(ui.channelLogin?.value || model.currentLogin);
   if (!login) { toast('请先输入对应的 Twitch 频道登录名。', 'error'); ui.channelLogin?.focus(); return; }
+  if (model.scanBusy) { toast('上一张截图仍在本机 OCR 中，请稍候。'); return; }
+  cancelProgressRead();
+  model.scanBusy = true;
   if (ui.imageTest) ui.imageTest.disabled = true;
   try {
     const scan = await api(`/api/screen-scan?login=${encodeURIComponent(login)}&layout=video`, {
@@ -655,15 +740,15 @@ async function recognizeManualImage() {
     await loadState(true);
     if (ui.manualResult) {
       const progress = (result.reports || []).map(reportLabel);
-      const queue = result.queueLength == null ? [] : [`队列 ${result.queueLength}`];
-      ui.manualResult.textContent = [...progress, ...queue].join('\n') || '未识别到可显示的进度。';
+      ui.manualResult.textContent = [...progress, queueLabel(result, '')].filter(Boolean).join('\n') || '未识别到可显示的进度或队列。';
       ui.manualResult.classList.remove('hidden');
     }
     const count = Array.isArray(result.reports) ? result.reports.length : 0;
-    toast(result.recognized ? `手动截图识别完成：${count} 条进度候选。` : '手动截图已处理，但未识别到明确进度。');
+    toast(count ? `手动截图识别完成，读到 ${count} 条进度候选。` : queueLabel(result, '手动截图未识别到明确进度或队列。'));
   } catch (error) {
     toast(error.message || '手动截图识别失败。', 'error');
   } finally {
+    model.scanBusy = false;
     if (ui.imageTest) ui.imageTest.disabled = !ui.imageFile?.files?.length;
   }
 }
@@ -674,6 +759,7 @@ function bindEvents() {
   ui.refresh?.addEventListener('click', () => void loadState(false));
   ui.readProgress?.addEventListener('click', () => void startProgressRead());
   ui.cancelRead?.addEventListener('click', cancelProgressRead);
+  ui.autoRead?.addEventListener('change', () => void updateAutoProgressRead());
   ui.connect?.addEventListener('click', () => void updateAccount('/api/twitch/device'));
   ui.disconnect?.addEventListener('click', () => void updateAccount('/api/twitch/disconnect'));
   ui.checkAuth?.addEventListener('click', () => void updateAccount('/api/twitch/check'));
@@ -715,6 +801,7 @@ function renderNavigation() {
 
 bindEvents();
 window.addEventListener('hashchange', renderNavigation);
+document.addEventListener('visibilitychange', checkDueProgressPoll);
 renderNavigation();
 if (!webviewBridge()) {
   ui.openTwitch.textContent = '用浏览器打开';

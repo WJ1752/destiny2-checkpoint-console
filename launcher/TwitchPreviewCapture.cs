@@ -33,8 +33,8 @@ internal static class TwitchPreviewCapture
         uri.Host.Equals("www.twitch.tv", StringComparison.OrdinalIgnoreCase) &&
         uri.AbsolutePath.Equals($"/{login}", StringComparison.OrdinalIgnoreCase) && uri.Query.Length == 0 && uri.Fragment.Length == 0;
 
-    internal static string InspectPlayer(string login, string? playbackId = null, long playbackDeadline = 0, bool captureSource = false) =>
-        $"({InspectScript})({JsonSerializer.Serialize(login)}, {JsonSerializer.Serialize(playbackId)}, {playbackDeadline.ToString(CultureInfo.InvariantCulture)}, {(captureSource ? "true" : "false")})";
+    internal static string InspectPlayer(string login, string? playbackId = null, long playbackDeadline = 0, bool captureSource = false, bool background = false) =>
+        $"({InspectScript})({JsonSerializer.Serialize(login)}, {JsonSerializer.Serialize(playbackId)}, {playbackDeadline.ToString(CultureInfo.InvariantCulture)}, {(captureSource ? "true" : "false")}, {(background ? "true" : "false")})";
 
     internal static string RestorePlayback(string login, string requestId, bool pauseNewPage) =>
         $"({RestoreScript})({JsonSerializer.Serialize(login)}, {JsonSerializer.Serialize(requestId)}, {(pauseNewPage ? "true" : "false")})";
@@ -95,9 +95,9 @@ internal static class TwitchPreviewCapture
     }
 
     private const string InspectScript = """
-        (login, playbackId, playbackDeadline, captureSource) => {
+        (login, playbackId, playbackDeadline, captureSource, background) => {
           const requireLive = playbackId !== null;
-          if (location.origin !== 'https://www.twitch.tv' || location.pathname.toLowerCase() !== `/${login}` || document.hidden ||
+          if (location.origin !== 'https://www.twitch.tv' || location.pathname.toLowerCase() !== `/${login}` || (!background && document.hidden) ||
               (requireLive && (location.search || location.hash || Date.now() >= playbackDeadline)))
             return { state: 'left' };
           const visible = node => {

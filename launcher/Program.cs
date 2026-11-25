@@ -66,6 +66,7 @@ internal sealed class D2AppContext : ApplicationContext
     private string _launchKey = string.Empty;
     private DesktopWindow? _desktopWindow;
     private TwitchBrowserWindow? _twitchWindow;
+    private TwitchBrowserWindow? _backgroundTwitchWindow;
     private BrowserFallback? _browser;
     private bool _browserBootstrapped;
     private bool _bootstrapPending;
@@ -138,8 +139,12 @@ internal sealed class D2AppContext : ApplicationContext
                 window.OpenTwitchRequested += login => _ = OpenTwitchWindowAsync(login);
                 window.OpenTwitchChatRequested += login => _ = OpenTwitchWindowAsync(login, chat: true);
                 window.SendTwitchWebRequested += (login, command, requestId) => _ = SendTwitchWebAsync(login, command, requestId);
-                window.ReadTwitchChannelRequested += (login, requestId) => _ = ReadTwitchChannelAsync(login, requestId);
-                window.CancelTwitchChannelReadRequested += requestId => _twitchWindow?.CancelChannelRead(requestId);
+                window.ReadTwitchChannelRequested += (login, requestId, background) => _ = ReadTwitchChannelAsync(login, requestId, background);
+                window.CancelTwitchChannelReadRequested += requestId =>
+                {
+                    _twitchWindow?.CancelChannelRead(requestId);
+                    _backgroundTwitchWindow?.CancelChannelRead(requestId);
+                };
                 window.Show();
                 _launchKey = string.Empty;
                 launchKey = string.Empty;
@@ -169,13 +174,14 @@ internal sealed class D2AppContext : ApplicationContext
         }
     }
 
-    private TwitchBrowserWindow GetTwitchWindow(DesktopWindow dashboard)
+    private TwitchBrowserWindow GetTwitchWindow(DesktopWindow dashboard, bool background = false)
     {
-        if (_twitchWindow is { IsDisposed: false } active) return active;
+        var active = background ? _backgroundTwitchWindow : _twitchWindow;
+        if (active is { IsDisposed: false }) return active;
         var profile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "D2Checkpoint", "TwitchProfile");
-        var window = new TwitchBrowserWindow(profile, dashboard);
-        window.FormClosed += (_, _) => { if (ReferenceEquals(_twitchWindow, window)) _twitchWindow = null; };
-        _twitchWindow = window;
+        var window = new TwitchBrowserWindow(profile, dashboard, background);
+        if (background) _backgroundTwitchWindow = window;
+        else _twitchWindow = window;
         return window;
     }
 
@@ -218,12 +224,12 @@ internal sealed class D2AppContext : ApplicationContext
         }
     }
 
-    private async Task ReadTwitchChannelAsync(string login, string requestId)
+    private async Task ReadTwitchChannelAsync(string login, string requestId, bool background)
     {
         if (_stopping || _desktopWindow is not { } dashboard) return;
         try
         {
-            var result = await GetTwitchWindow(dashboard).ReadChannelAsync(login, requestId);
+            var result = await GetTwitchWindow(dashboard, background).ReadChannelAsync(login, requestId);
             dashboard.PostTwitchChannelRead(login, requestId, result);
         }
         catch
@@ -401,6 +407,7 @@ internal sealed class D2AppContext : ApplicationContext
         _launchKey = string.Empty;
         try { _desktopWindow?.AllowCloseAndDispose(); } catch { }
         try { _twitchWindow?.AllowCloseAndDispose(); } catch { }
+        try { _backgroundTwitchWindow?.AllowCloseAndDispose(); } catch { }
         try { _browser?.Dispose(); } catch { }
         try
         {
@@ -423,12 +430,13 @@ internal sealed class DesktopWindow : Form
     private readonly Uri _serviceUri;
     private readonly string _profilePath;
     private readonly WebView2 _webView = new();
+    private readonly System.Windows.Forms.Timer _progressPollTimer = new();
     private bool _allowClose;
 
     public event Action<string>? OpenTwitchRequested;
     public event Action<string>? OpenTwitchChatRequested;
     public event Action<string, string, string>? SendTwitchWebRequested;
-    public event Action<string, string>? ReadTwitchChannelRequested;
+    public event Action<string, string, bool>? ReadTwitchChannelRequested;
     public event Action<string>? CancelTwitchChannelReadRequested;
 
     public DesktopWindow(Uri serviceUri, string profilePath)
@@ -443,6 +451,13 @@ internal sealed class DesktopWindow : Form
         _webView.DefaultBackgroundColor = NativeTheme.Background;
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
+        _progressPollTimer.Tick += (_, _) =>
+        {
+            _progressPollTimer.Stop();
+            if (_allowClose || _webView.CoreWebView2 is not { } core || !IsDashboardDocument(core.Source)) return;
+            try { core.PostWebMessageAsJson("""{"type":"progress-poll-due"}"""); }
+            catch (Exception) { }
+        };
     }
 
     public async Task InitializeAsync(string launchKey)
@@ -460,7 +475,11 @@ internal sealed class DesktopWindow : Form
         };
         _webView.CoreWebView2.NavigationStarting += (_, e) =>
         {
-            if (IsServiceOrigin(e.Uri)) return;
+            if (IsServiceOrigin(e.Uri))
+            {
+                _progressPollTimer.Stop();
+                return;
+            }
             e.Cancel = true;
             OpenExternal(e.Uri);
         };
@@ -488,9 +507,19 @@ internal sealed class DesktopWindow : Form
             if (type == "open-twitch" && hasLogin) OpenTwitchRequested?.Invoke(login);
             else if (type == "open-twitch-chat" && hasLogin) OpenTwitchChatRequested?.Invoke(login);
             else if (type == "read-twitch-channel" && hasLogin && ReadString(root, "requestId") is { } readId && TwitchChatPage.IsRequestId(readId))
-                ReadTwitchChannelRequested?.Invoke(login, readId);
+                ReadTwitchChannelRequested?.Invoke(login, readId, root.TryGetProperty("background", out var background) && background.ValueKind == JsonValueKind.True);
             else if (type == "cancel-twitch-channel-read" && ReadString(root, "requestId") is { } cancelId && TwitchChatPage.IsRequestId(cancelId))
                 CancelTwitchChannelReadRequested?.Invoke(cancelId);
+            else if (type == "schedule-progress-poll" && root.TryGetProperty("delayMs", out var delay) && delay.ValueKind == JsonValueKind.Number &&
+                delay.TryGetInt32(out var delayMs) && delayMs >= 0)
+            {
+                _progressPollTimer.Stop();
+                if (delayMs > 0)
+                {
+                    _progressPollTimer.Interval = Math.Min(delayMs, 5 * 60_000);
+                    _progressPollTimer.Start();
+                }
+            }
             else if (type == "send-twitch-web" && ReadString(root, "requestId") is { } requestId && TwitchChatPage.IsRequestId(requestId))
             {
                 var command = ReadString(root, "command");
@@ -607,6 +636,12 @@ internal sealed class DesktopWindow : Form
         Close();
         Dispose();
     }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _progressPollTimer.Dispose();
+        base.Dispose(disposing);
+    }
 }
 
 internal sealed class TwitchBrowserWindow : Form
@@ -619,6 +654,7 @@ internal sealed class TwitchBrowserWindow : Form
     private const string CaptureHint = "仅识别当前可见直播画面；登录、验证、密码页面请勿启用。";
     private readonly string _profilePath;
     private readonly DesktopWindow _dashboard;
+    private readonly bool _background;
     private readonly WebView2 _webView = new();
     private readonly TextBox _address = new();
     private readonly Button _back = new();
@@ -660,15 +696,23 @@ internal sealed class TwitchBrowserWindow : Form
         "subscriptions", "inventory", "following", "videos", "clip", "jobs", "p", "turbo"
     };
 
-    public TwitchBrowserWindow(string profilePath, DesktopWindow dashboard)
+    public TwitchBrowserWindow(string profilePath, DesktopWindow dashboard, bool background)
     {
         _profilePath = profilePath;
         _dashboard = dashboard;
+        _background = background;
         Text = $"Twitch · {NativeTheme.WorkbenchTitle}";
         NativeTheme.StyleWindow(this);
         MinimumSize = new Size(920, 640);
         Size = new Size(1280, 820);
         StartPosition = FormStartPosition.CenterScreen;
+        if (_background)
+        {
+            ShowInTaskbar = false;
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.Manual;
+            ClientSize = new Size(1600, 900);
+        }
 
         ConfigureButton(_back, "←", 36, (_, _) => { if (_webView.CoreWebView2?.CanGoBack == true) _webView.CoreWebView2.GoBack(); });
         _back.AccessibleName = "上一页";
@@ -738,6 +782,21 @@ internal sealed class TwitchBrowserWindow : Form
         _webView.TabIndex = 1;
         Controls.Add(_webView);
         Controls.Add(toolbar);
+        if (_background) toolbar.Hide();
+    }
+
+    protected override bool ShowWithoutActivation => _background;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            const int noActivate = 0x08000000;
+            const int toolWindow = 0x00000080;
+            if (_background) parameters.ExStyle |= noActivate | toolWindow;
+            return parameters;
+        }
     }
 
     private static TableLayoutPanel CreateToolbarRow(Color color, int flexibleColumn, params Control[] controls)
@@ -813,9 +872,19 @@ internal sealed class TwitchBrowserWindow : Form
         await EnsureInitializedAsync().WaitAsync(cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (_allowClose || version != _showVersion) return null;
-        if (!Visible) Show();
-        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
-        Activate();
+        if (_background)
+        {
+            // WebView2 needs a visible controller to capture video. Keep its host outside the monitor area.
+            var desktop = SystemInformation.VirtualScreen;
+            Location = new Point(desktop.Left, desktop.Bottom + 32);
+            if (!Visible) Show();
+        }
+        else
+        {
+            if (!Visible) Show();
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            Activate();
+        }
         return _webView.CoreWebView2;
     }
 
@@ -957,6 +1026,7 @@ internal sealed class TwitchBrowserWindow : Form
         var frames = new List<(string Image, TwitchPreviewCapture.FrameInfo Info)>(2);
         TwitchPreviewCapture.Result Captured(string message) => new(frames.Select(frame => frame.Image).ToArray(), message,
             FrameInfo: frames.Select(frame => frame.Info).ToArray());
+        bool IsReadWindowCurrent() => Visible && (_background || _windowActive) && version == _showVersion;
         try
         {
             var core = await ShowBrowserAsync(normalized, version, timeout.Token);
@@ -995,10 +1065,10 @@ internal sealed class TwitchBrowserWindow : Form
             {
                 if (needsNavigation) core.Navigate($"https://www.twitch.tv/{normalized}");
                 SetStatus($"正在读取 {normalized} 的实时直播画面…");
-                var script = TwitchPreviewCapture.InspectPlayer(normalized, requestId, deadline);
-                var sourceScript = TwitchPreviewCapture.InspectPlayer(normalized, requestId, deadline, captureSource: true);
-                if (!_windowActive) await Task.Delay(250, timeout.Token);
-                while (Visible && _windowActive && !leftTarget && version == _showVersion && frames.Count < 2)
+                var script = TwitchPreviewCapture.InspectPlayer(normalized, requestId, deadline, background: _background);
+                var sourceScript = TwitchPreviewCapture.InspectPlayer(normalized, requestId, deadline, captureSource: true, background: _background);
+                if (!_background && !_windowActive) await Task.Delay(250, timeout.Token);
+                while (IsReadWindowCurrent() && !leftTarget && frames.Count < 2)
                 {
                     timeout.Token.ThrowIfCancellationRequested();
                     if (TwitchPreviewCapture.IsChannel(core.Source, normalized))
@@ -1076,7 +1146,7 @@ internal sealed class TwitchBrowserWindow : Form
                 {
                     try
                     {
-                        await core.ExecuteScriptAsync(TwitchPreviewCapture.RestorePlayback(normalized, requestId, needsNavigation && version == _showVersion))
+                        await core.ExecuteScriptAsync(TwitchPreviewCapture.RestorePlayback(normalized, requestId, _background || (needsNavigation && version == _showVersion)))
                             .WaitAsync(TimeSpan.FromMilliseconds(600));
                     }
                     catch { }
@@ -1084,7 +1154,7 @@ internal sealed class TwitchBrowserWindow : Form
                 core.IsMuted = muted;
             }
 
-            if (stopped.IsCancellationRequested || !Visible || !_windowActive || version != _showVersion)
+            if (stopped.IsCancellationRequested || !IsReadWindowCurrent())
                 return new([], "采集已取消或 Twitch 窗口已切换。", true);
             if (frames.Count > 0)
                 return Captured(frames.Count == 2 ? "已取得两张实时直播画面。" : "本次只取得一张不同的实时画面。");
@@ -1113,6 +1183,15 @@ internal sealed class TwitchBrowserWindow : Form
         {
             _channelReadRequestId = null;
             _channelRead = null;
+            if (_background && !IsDisposed)
+            {
+                Hide();
+                if (_webView.CoreWebView2 is { } core)
+                {
+                    try { await core.TrySuspendAsync().WaitAsync(TimeSpan.FromMilliseconds(500)); }
+                    catch (Exception) { }
+                }
+            }
             _captureGate.Release();
             if (!IsDisposed) UpdateCaptureState();
         }
@@ -1130,7 +1209,19 @@ internal sealed class TwitchBrowserWindow : Form
         await _webView.EnsureCoreWebView2Async(environment);
         var core = _webView.CoreWebView2;
         core.Settings.AreDevToolsEnabled = false;
-        core.Settings.AreDefaultScriptDialogsEnabled = true;
+        core.Settings.AreDefaultScriptDialogsEnabled = !_background;
+        if (_background)
+        {
+            core.IsMuted = true;
+            core.Settings.IsWebMessageEnabled = false;
+            core.PermissionRequested += (_, e) =>
+            {
+                e.State = CoreWebView2PermissionState.Deny;
+                e.SavesInProfile = false;
+            };
+            core.DownloadStarting += (_, e) => e.Cancel = true;
+            core.LaunchingExternalUriScheme += (_, e) => e.Cancel = true;
+        }
         core.NavigationStarting += (_, e) =>
         {
             if (!IsAllowedTwitchUri(e.Uri))
@@ -1166,6 +1257,7 @@ internal sealed class TwitchBrowserWindow : Form
         core.NewWindowRequested += (_, e) =>
         {
             e.Handled = true;
+            if (_background) return;
             if (IsAllowedTwitchUri(e.Uri))
             {
                 PauseAutomaticCapture(cancelCapture: true);
@@ -1192,7 +1284,7 @@ internal sealed class TwitchBrowserWindow : Form
         _loadTimeoutReported = false;
         _lastChannelState = null;
         _channelLoadDeadline = Environment.TickCount64 + ChannelLoadTimeoutMilliseconds;
-        _channelTimer.Enabled = isChannel;
+        _channelTimer.Enabled = !_background && isChannel;
         SetStatus(isChannel ? "正在加载 Twitch 频道…" : CaptureHint);
         UpdateCaptureState();
     }
@@ -1201,7 +1293,7 @@ internal sealed class TwitchBrowserWindow : Form
     {
         _loadTimeoutReported = true;
         SetStatus(message);
-        _dashboard.PostTwitchWindowError(message);
+        if (!_background) _dashboard.PostTwitchWindowError(message);
     }
 
     private async Task CheckChannelAsync()

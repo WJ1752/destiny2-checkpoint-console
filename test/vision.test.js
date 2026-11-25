@@ -93,6 +93,24 @@ test('channel normalization resolves Twitch URL names and handles malformed OCR 
   assert.equal(vision.parseOcrResult({ width: 10, height: 10, words: [] }).recognized, false);
 });
 
+test('queue labels distinguish count, explicit state and chat instructions in a video crop', () => {
+  const wordAt = (text, x = 0.77, y = 0.06) => ({ text, x, y, width: 0.04, height: 0.018 });
+  const parse = (...words) => vision.parseOcrResult(syntheticOcr(words), { channel: 'd2checkpoints' });
+
+  assert.deepEqual(parse(wordAt('Queue'), wordAt('OPEN：１２', 0.83)), {
+    recognized: true, queueLength: 12, queueStatus: 'open', reports: []
+  });
+  assert.deepEqual(parse(wordAt('队列已关闭')), {
+    recognized: true, queueLength: null, queueStatus: 'closed', reports: []
+  });
+  assert.deepEqual(parse(wordAt('0 players in queue')), {
+    recognized: true, queueLength: 0, queueStatus: null, reports: []
+  });
+  assert.deepEqual(parse(wordAt('!queue 12'), wordAt('Queue', 0.77, 0.09), wordAt('8', 0.77, 0.12)), {
+    recognized: false, queueLength: null, queueStatus: null, reports: []
+  });
+});
+
 test('checkpoint labels prefer the complete encounter and preserve difficulty markers', () => {
   const output = vision.parseOcrResult(syntheticOcr([
     word('VoG', 0.34, 0.50), word('Post-Templar 〈M〉', 0.34, 0.58, 0.13)

@@ -8,14 +8,15 @@ const { CHANNELS } = require('./checkpoint-sources');
 
 const DATA_PATH = path.join(__dirname, 'vision-data.json');
 const DATA = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
-const EMPTY_RESULT = Object.freeze({ recognized: false, queueLength: null, reports: [] });
+const UNKNOWN_QUEUE = Object.freeze({ queueLength: null, queueStatus: null });
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const OCR_TIMEOUT_MS = 20000;
 const ENCOUNTER_PATTERNS = new WeakMap();
+const QUEUE_STATUS = /^(?:(?<closed>(?:closed|paused|disabled|not\s+open)\b|已?\s*(?:关闭|關閉|暂停|暫停))|(?:open|opened)\b|已?\s*(?:开放|開放))(?=\s*(?:$|[\p{P}\d]))/iu;
 
-function result(recognized, queueLength, reports) {
-  return { recognized, queueLength, reports };
+function result(recognized, queue, reports) {
+  return { recognized, ...queue, reports };
 }
 
 function canonicalChannel(channel) {
@@ -177,22 +178,45 @@ function readEncounterLine(line, encounters) {
   return entry ? [{ entry, master: isMasterSuffix(slot[2]) }] : [];
 }
 
+function queueLine(text) {
+  const line = text.normalize('NFKC').trim();
+  const waiting = /^(\d,\d{3}|\d{1,4})\s+(?:(?:players?|people)\s+)?(?:in\s+(?:the\s+)?queue|queued)\b/i.exec(line);
+  if (waiting) return { queueLength: Number(waiting[1].replace(',', '')), queueStatus: null };
+
+  const label = /^(?:(?:(?:checkpoint|current)\s+)?queue\b(?:\s+(?:size|length|status)\b)?|(?:[队隊]\s*列|排\s*[队隊])(?:\s*(?:人\s*[数數]|[状狀]\s*[态態]))?)/i.exec(line);
+  if (!label) return UNKNOWN_QUEUE;
+  const stripSeparators = value => value.replace(/^(?:is\s+|-\s+|[\s:=(\[\])–—])+/i, '');
+  const value = stripSeparators(line.slice(label[0].length));
+  const leadingState = QUEUE_STATUS.exec(value);
+  const countValue = leadingState ? stripSeparators(value.slice(leadingState[0].length)) : value;
+  const count = /^(\d,\d{3}|\d{1,4})(?=$|[\s)\]/人位])/.exec(countValue);
+  const empty = /^(?:empty\b|无人(?:排队)?|無人(?:排隊)?|空(?:队列|隊列)?$)/i.test(countValue);
+  const state = leadingState || (count && QUEUE_STATUS.exec(stripSeparators(countValue.slice(count[0].length))));
+  const queueStatus = state ? (state.groups.closed ? 'closed' : 'open') : null;
+  return { queueLength: count ? Number(count[1].replace(',', '')) : empty ? 0 : null, queueStatus };
+}
+
 function extractQueue(words, region, width, height) {
   const rect = getRect(region, width, height);
-  const text = wordLines(words, rect, width, height).map((line) => line.text).join(' ');
-  const match = text.match(/\bqueue\s*[（(]?\s*(\d{1,4})\s*[）)]?/i);
-  return match ? Number(match[1]) : null;
+  let queueLength = null;
+  let queueStatus = null;
+  for (const line of wordLines(words, rect, width, height)) {
+    const observed = queueLine(line.text);
+    queueLength ??= observed.queueLength;
+    if (queueStatus !== 'closed') queueStatus = observed.queueStatus ?? queueStatus;
+  }
+  return { queueLength, queueStatus };
 }
 
 function parseOcrResult(ocrResult, options = {}) {
   if (!ocrResult || !Number.isFinite(ocrResult.width) || !Number.isFinite(ocrResult.height) || ocrResult.width <= 0 || ocrResult.height <= 0 || !Array.isArray(ocrResult.words)) {
-    return result(false, null, []);
+    return result(false, UNKNOWN_QUEUE, []);
   }
   const { profile } = resolveProfile(options.channel);
   const regionSet = options.isScreenshot === true ? DATA.imageRegions.screenshot : DATA.imageRegions.thumbnail;
   const listRect = getRect(regionSet.list, ocrResult.width, ocrResult.height);
   const wordsInList = ocrResult.words.filter((word) => typeof word.text === 'string' && isInside(word, listRect, ocrResult.width, ocrResult.height));
-  const queueLength = extractQueue(ocrResult.words, regionSet.queue, ocrResult.width, ocrResult.height);
+  const queue = extractQueue(ocrResult.words, regionSet.queue, ocrResult.width, ocrResult.height);
   const dynamicSections = options.isScreenshot === true ? [] :
     layoutSections(ocrResult.words, ocrResult.width, ocrResult.height, DATA.activities, canonicalChannel(options.channel));
   const sectionsSeen = new Set();
@@ -238,8 +262,8 @@ function parseOcrResult(ocrResult, options = {}) {
     }
   }
 
-  const recognized = sectionsSeen.size >= (profile.minimumSections || 1) || queueLength !== null;
-  return result(recognized, queueLength, reports);
+  const recognized = sectionsSeen.size >= (profile.minimumSections || 1) || queue.queueLength !== null || queue.queueStatus !== null;
+  return result(recognized, queue, reports);
 }
 
 function resolveWorkerPath() {
@@ -320,7 +344,8 @@ async function recognizeImage(imageBuffer, { channel, isScreenshot = false } = {
   const fallback = parseOcrResult({ ...ocr, words: ocr.alternateWords }, options);
   // Keep difficulty from the preferred recognizer where both engines found the same checkpoint.
   const primaryCheckpoints = new Set(parsed.reports.map(report => `${report.activityId}/${report.encounterCode}`));
-  return result(parsed.recognized || fallback.recognized, parsed.queueLength ?? fallback.queueLength,
+  const queue = { queueLength: parsed.queueLength ?? fallback.queueLength, queueStatus: parsed.queueStatus ?? fallback.queueStatus };
+  return result(parsed.recognized || fallback.recognized, queue,
     [...parsed.reports, ...fallback.reports.filter(report => !primaryCheckpoints.has(`${report.activityId}/${report.encounterCode}`))]);
 }
 
