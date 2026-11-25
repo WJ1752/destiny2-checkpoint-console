@@ -219,6 +219,24 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     desktop = require('../desktop/main');
     assert.equal(typeof desktop.makeServer, 'function');
     assert.equal(typeof desktop.scanScreen, 'function');
+    assert.equal(typeof desktop.reportFreshness, 'function');
+    assert.equal(typeof desktop.latestStateReports, 'function');
+
+    const freshnessNow = Date.now();
+    const halfFresh = desktop.reportFreshness({ observedAt: new Date(freshnessNow - 5 * 60_000).toISOString() }, freshnessNow);
+    assert.deepEqual([halfFresh.fresh, halfFresh.freshnessPercent], [true, 50]);
+    const expired = desktop.reportFreshness({ observedAt: new Date(freshnessNow - 11 * 60_000).toISOString() }, freshnessNow);
+    assert.deepEqual([expired.fresh, expired.freshnessPercent], [false, 0]);
+    const future = desktop.reportFreshness({ observedAt: new Date(freshnessNow + 5 * 60_000).toISOString() }, freshnessNow);
+    assert.deepEqual([future.fresh, future.freshnessPercent], [true, 100], 'future clock skew must not exceed a full freshness bar');
+
+    const manyReports = Array.from({ length: 120 }, (_, index) => ({
+      id: String(index), login: `channel_${index % 4}`, observedAt: new Date(freshnessNow - index * 1000).toISOString()
+    }));
+    const visibleReports = desktop.latestStateReports(manyReports, 12);
+    assert.equal(visibleReports.length, 12);
+    assert.equal(new Set(visibleReports.map(item => item.login)).size, 4, 'the state window must not starve quieter channels');
+
     server = desktop.makeServer();
     await new Promise((resolve, reject) => server.listen(0, '127.0.0.1', error => error ? reject(error) : resolve()));
     cleanupRegistered = true;
@@ -307,6 +325,11 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     const bReport = state.reports.find(item => item.login === otherChannel);
     assert.equal(aReport.status, 'available', 'same channel + distinct matching frame confirms a report');
     assert.equal(bReport.status, 'candidate', 'another channel cannot borrow the first channel frame');
+    assert.ok(aReport.expiresAt, 'fresh reports expose their expiry timestamp');
+    assert.ok(aReport.freshnessPercent > 0 && aReport.freshnessPercent <= 100, 'freshness percentage stays within 1–100');
+    assert.equal(state.reportSummary.displayed, state.reports.length);
+    assert.ok(state.reportSummary.total >= state.reportSummary.displayed);
+    assert.ok(state.reportSummary.hidden >= 0);
     assert.ok(state.streams.some(item => item.login === preferredChannel));
     assert.ok(state.streams.some(item => item.login === otherChannel));
 

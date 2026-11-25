@@ -20,6 +20,7 @@ const DATA_ROOT = process.env.D2_DATA_DIR || path.join(process.env.LOCALAPPDATA 
 const STATE_FILE = path.join(DATA_ROOT, 'state.json');
 const REPORT_TTL_MS = 10 * 60 * 1000;
 const FRAME_CONFIRM_TTL_MS = 5 * 60 * 1000;
+const STATE_REPORT_LIMIT = 80;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const SCAN_INTERVAL_MS = 60_000;
 const SECURITY_HEADERS = {
@@ -255,7 +256,38 @@ function cleanLogin(value) {
   return /^[a-z0-9_]{1,25}$/.test(login) && !reserved.has(login) ? login : '';
 }
 function reportKey(login, found) { return `${login}/${found.activityId || found.activityCode}/${found.encounterCode}/${found.difficultyCode}`; }
-function reportFresh(report) { return Boolean(report && Date.now() - Date.parse(report.observedAt || 0) < REPORT_TTL_MS); }
+function freshnessFor(value, now = Date.now(), ttlMs = REPORT_TTL_MS) {
+  const observedAt = typeof value === 'number' ? value : Date.parse(value || 0);
+  if (!Number.isFinite(observedAt)) return { fresh: false, expiresAt: null, freshnessPercent: 0 };
+  const remaining = observedAt + ttlMs - now;
+  return {
+    fresh: remaining > 0,
+    expiresAt: new Date(observedAt + ttlMs).toISOString(),
+    freshnessPercent: remaining > 0 ? Math.min(100, Math.max(1, Math.ceil(remaining * 100 / ttlMs))) : 0
+  };
+}
+function reportFreshness(report, now = Date.now()) { return freshnessFor(report?.observedAt, now); }
+function reportFresh(report, now = Date.now()) { return reportFreshness(report, now).fresh; }
+function latestStateReports(items, limit = STATE_REPORT_LIMIT) {
+  const ordered = [...items].sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
+  const byChannel = new Map();
+  for (const report of ordered) {
+    if (!byChannel.has(report.login)) byChannel.set(report.login, []);
+    byChannel.get(report.login).push(report);
+  }
+  const selected = [];
+  for (let index = 0; selected.length < limit; index += 1) {
+    let added = false;
+    for (const group of byChannel.values()) {
+      if (!group[index]) continue;
+      selected.push(group[index]);
+      added = true;
+      if (selected.length >= limit) break;
+    }
+    if (!added) break;
+  }
+  return selected.sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
+}
 function ensureChannel(login, protectedChannels = settings.watchedChannels) {
   let channel = channels.get(login);
   if (channel) return channel;
@@ -437,18 +469,25 @@ async function sendQueueRequest(body, viaWebPage = false) {
 }
 function buildState() {
   const now = Date.now();
-  const recentReports = reports.filter(reportFresh).map(report => {
+  const recentReports = [];
+  for (const report of reports) {
+    const freshness = reportFreshness(report, now);
+    if (!freshness.fresh) continue;
     const channel = channels.get(report.login);
     const current = channel?.lastFrameAt && now - Date.parse(channel.lastFrameAt) < REPORT_TTL_MS && sourceIsCurrent(report);
     const queue = queueFor(channel, now);
-    const item = { ...report, ...queue, encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
-    if (!current && report.status === 'available') return { ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false };
-    return { ...item, canRequest: report.status === 'available' && queue.queueStatus !== 'closed' && canRequest(report) };
-  });
+    const item = { ...report, ...queue, expiresAt: freshness.expiresAt, freshnessPercent: freshness.freshnessPercent,
+      encounterLabel: encounterLabel(report), progressKey: progressKey(report) };
+    if (!current && report.status === 'available') recentReports.push({ ...item, status: 'candidate', confidence: '本频道需要新画面重新确认', canRequest: false });
+    else recentReports.push({ ...item, canRequest: report.status === 'available' && queue.queueStatus !== 'closed' && canRequest(report) });
+  }
+  const visibleReports = latestStateReports(recentReports);
   const account = twitch.status();
   return { app: { state: lastError ? 'error' : 'ready', message: lastError || '本机检查点工作台已就绪', error: lastError, lastScanAt },
     settings, streams: [...channels.values()].map(summarizeChannel).sort((a, b) => Number(b.watching) - Number(a.watching) || (b.lastFrameAt || '').localeCompare(a.lastFrameAt || '')),
-    reports: recentReports.slice(-500).reverse(), recommendations: rankRecommendations().slice(0, 12),
+    reports: visibleReports,
+    reportSummary: { total: recentReports.length, displayed: visibleReports.length, hidden: Math.max(0, recentReports.length - visibleReports.length) },
+    recommendations: rankRecommendations().slice(0, 12),
     twitch: account,
     monitor: { ...monitor, channels: monitoredLogins().map(login => ({ login, ...streamStatus.get(login) })) },
     capabilities: { embeddedTwitchWeb: true, localScreenRecognition: process.platform === 'win32', twitchDeveloperAppRequired: !account.configured, chatSending: account.connected },
@@ -623,4 +662,4 @@ if (require.main === module) {
   process.on('SIGTERM', () => server.close(() => process.exit(0)));
   setInterval(() => void refreshMonitor(), SCAN_INTERVAL_MS).unref();
 }
-module.exports = { makeServer, scanScreen, buildState, estimateFor, persist };
+module.exports = { makeServer, scanScreen, buildState, estimateFor, persist, reportFreshness, latestStateReports };
