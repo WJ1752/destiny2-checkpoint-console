@@ -739,7 +739,16 @@ select.text-input { padding-right: 8px; }
 .result-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .dot.candidate { background: var(--gold); }
 .dot.verified { background: var(--live); }
-.report-list { display: grid; gap: 6px; margin-top: 15px; }
+.report-list {
+  display: grid;
+  max-height: clamp(260px, 50vh, 540px);
+  gap: 6px;
+  margin-top: 15px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
 .report-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
