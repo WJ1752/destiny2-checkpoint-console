@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "imageRegions": {
+    "screenshot": {
+      "list": { "x": 0.126, "y": 0.14, "width": 0.506, "height": 0.38 },
+      "queue": { "x": 0.66, "y": 0.14, "width": 0.16, "height": 0.14 }
+    },
+    "thumbnail": {
+      "list": { "x": 0.0, "y": 0.02, "width": 0.75, "height": 0.62 },
+      "queue": { "x": 0.76, "y": 0.02, "width": 0.24, "height": 0.14 }
+    }
+  },
+  "activities": {
+    "kingsFall": {
+      "activity": "王之陨落", "activityCode": "KF", "aliases": ["King's Fall", "Kings Fall", "KF"],
+      "encounters": [
+        { "encounter": "高尔戈洛斯", "encounterCode": "Golgoroth", "aliases": ["Golgoroth"], "queueCommands": { "soloraidsbot": { "slot": "3" } } },
+        { "encounter": "奥里克斯", "encounterCode": "Oryx", "aliases": ["Oryx"] },
+        { "encounter": "战争祭祀", "encounterCode": "Warpriest", "aliases": ["Warpriest"] },
+        { "encounter": "玛尔戈", "encounterCode": "Daughters", "aliases": ["Daughters", "Sisters"] },
+        { "encounter": "迷宫", "encounterCode": "Maze", "aliases": ["Maze"] },
+        { "encounter": "Wall", "encounterCode": "Wall", "aliases": ["Wall"] }
+      ]
+    },
+    "rootNightmares": {
+      "activity": "根源之战", "activityCode": "RoN", "aliases": ["Root of Nightmares", "RoN"],
+      "encounters": [
+        { "encounter": "灾星", "encounterCode": "Cataclysm", "aliases": ["Cataclysm"] },
+        { "encounter": "分裂者", "encounterCode": "Scission", "aliases": ["Scission"] },
+        { "encounter": "宏观世界", "encounterCode": "Macrocosm", "aliases": ["Macrocosm"] },
+        { "encounter": "解说者", "encounterCode": "Explicator", "aliases": ["Explicator", "Explicator of Worlds"] },
+        { "encounter": "内扎雷克", "encounterCode": "Nezarec", "aliases": ["Nezarec"] }
+      ]
+    },
+    "vowDisciple": {
+      "activity": "门徒誓约", "activityCode": "VotD", "aliases": ["Vow of the Disciple", "VotD", "Vow"],
+      "encounters": [
+        { "encounter": "获取", "encounterCode": "Acquisition", "aliases": ["Acquisition"] },
+        { "encounter": "看门人", "encounterCode": "Caretaker", "aliases": ["Caretaker"] },
+        { "encounter": "展示", "encounterCode": "Exhibition", "aliases": ["Exhibition"] },
+        { "encounter": "见证者", "encounterCode": "Witness", "aliases": ["Witness"] },
+        { "encounter": "坦尼克斯宝箱", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2"], "queueCommands": { "d2checkpoints": { "activity": "VotD", "encounter": "chest2", "difficultyCodes": ["M"] } } },
+        { "encounter": "鲁尔克", "encounterCode": "Rhulk", "aliases": ["Rhulk"] }
+      ]
+    },
+    "salvationsEdge": {
+      "activity": "救赎之境", "activityCode": "SE", "aliases": ["Salvation's Edge", "Salvations Edge", "SE"],
+      "encounters": [
+        { "encounter": "先驱", "encounterCode": "Herald", "aliases": ["Herald", "Herald of Finality"] },
+        { "encounter": "真理", "encounterCode": "Verity", "aliases": ["Verity"] },
+        { "encounter": "见证者", "encounterCode": "Witness", "aliases": ["Witness"] },
+        { "encounter": "胸部 1", "encounterCode": "Chest1", "aliases": ["Chest1", "Ches1", "Chest 1"] },
+        { "encounter": "胸部 2", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2"] }
+      ]
+    },
+    "spireWatcher": {
+      "activity": "守望者尖塔", "activityCode": "SotW", "aliases": ["Spire of the Watcher", "SotW"],
+      "encounters": [
+        { "encounter": "守望者", "encounterCode": "Watcher", "aliases": ["Watcher"] },
+        { "encounter": "阿卡尔斯", "encounterCode": "Akacys", "aliases": ["Akacys", "Akelous"] },
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] },
+        { "encounter": "遭遇 1", "encounterCode": "1", "aliases": ["1"] },
+        { "encounter": "遭遇 2", "encounterCode": "2", "aliases": ["2"] }
+      ]
+    },
+    "duality": {
+      "activity": "二元性", "activityCode": "Duality", "aliases": ["Duality"],
+      "encounters": [
+        { "encounter": "噩梦中的卡厄斯", "encounterCode": "Caiatl", "aliases": ["Caiatl"] },
+        { "encounter": "噩梦中的高尔戈洛斯", "encounterCode": "Gahlran", "aliases": ["Gahlran"] },
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] },
+        { "encounter": "遭遇 1", "encounterCode": "1", "aliases": ["1"] },
+        { "encounter": "遭遇 2", "encounterCode": "2", "aliases": ["2"] }
+      ]
+    },
+    "ghostsDeep": {
+      "activity": "深渊幽魂", "activityCode": "GotD", "aliases": ["Ghosts of the Deep", "Ghost of the Deep", "GotD"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] },
+        { "encounter": "胸部 1", "encounterCode": "Chest1", "aliases": ["Chest1", "Ches1", "Chest 1"] },
+        { "encounter": "胸部 2", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2"] },
+        { "encounter": "艾克塔", "encounterCode": "Ecthar", "aliases": ["Ecthar"] },
+        { "encounter": "萨维森", "encounterCode": "Simmumah", "aliases": ["Simmumah"] }
+      ]
+    },
+    "crotasEnd": {
+      "activity": "克罗塔的终局", "activityCode": "CE", "aliases": ["Crota's End", "Crotas End", "CE"],
+      "encounters": [
+        { "encounter": "噬灭者", "encounterCode": "Deathsinger", "aliases": ["Deathsinger", "Ir Yut"] },
+        { "encounter": "克罗塔", "encounterCode": "Crota", "aliases": ["Crota"] },
+        { "encounter": "深渊", "encounterCode": "Abyss", "aliases": ["Abyss"] }
+      ]
+    },
+    "graspAvarice": {
+      "activity": "贪婪之握", "activityCode": "GoA", "aliases": ["Grasp of Avarice", "GoA"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] },
+        { "encounter": "遭遇 1", "encounterCode": "1", "aliases": ["1"] },
+        { "encounter": "遭遇 2", "encounterCode": "2", "aliases": ["2"] }
+      ]
+    },
+    "vaultGlass": {
+      "activity": "玻璃宝库", "activityCode": "VoG", "aliases": ["Vault of Glass", "VoG"],
+      "encounters": [
+        { "encounter": "圣堂武士", "encounterCode": "Templar", "aliases": ["Templar", "TempIar"] },
+        { "encounter": "阿泰翁", "encounterCode": "Atheon", "aliases": ["Atheon"], "queueCommands": { "soloraidsbot": { "slot": "5" } } },
+        { "encounter": "汇流", "encounterCode": "Confluxes", "aliases": ["Confluxes", "Conflux"] },
+        { "encounter": "神谕", "encounterCode": "Oracles", "aliases": ["Oracles", "Oracle"] },
+        { "encounter": "守门人", "encounterCode": "Gatekeeper", "aliases": ["Gatekeeper"] }
+      ]
+    },
+    "lastWish": {
+      "activity": "最后遗愿", "activityCode": "LW", "aliases": ["Last Wish", "LW"],
+      "encounters": [
+        { "encounter": "卡利", "encounterCode": "Kalli", "aliases": ["Kalli", "Kalli the Corrupted"] },
+        { "encounter": "莫格斯", "encounterCode": "Morgeth", "aliases": ["Morgeth"] },
+        { "encounter": "宝库", "encounterCode": "Vault", "aliases": ["Vault"] },
+        { "encounter": "瑞文", "encounterCode": "Riven", "aliases": ["Riven"] },
+        { "encounter": "苏罗奇", "encounterCode": "ShuroChi", "aliases": ["Shuro-Chi", "Shuro Chi", "Post Shuro-Chi"] },
+        { "encounter": "王后步道", "encounterCode": "Queenswalk", "aliases": ["Queenswalk", "Queens Walk"] },
+        { "encounter": "遭遇 2", "encounterCode": "2", "aliases": ["2"] },
+        { "encounter": "遭遇 5", "encounterCode": "5", "aliases": ["5"] }
+      ]
+    },
+    "deepStoneCrypt": {
+      "activity": "深岩墓室", "activityCode": "DSC", "aliases": ["Deep Stone Crypt", "DSC"],
+      "encounters": [
+        { "encounter": "阿特拉克斯-1", "encounterCode": "Atraks", "aliases": ["Atraks", "Atraks-1"] },
+        { "encounter": "坠毁地点", "encounterCode": "Descent", "aliases": ["Descent"] },
+        { "encounter": "坦尼克斯", "encounterCode": "Taniks", "aliases": ["Taniks"] },
+        { "encounter": "安全区", "encounterCode": "Crypt Security", "aliases": ["Crypt Security", "Security"] }
+      ]
+    },
+    "warlordsRuin": {
+      "activity": "军阀废墟", "activityCode": "WR", "aliases": ["Warlord's Ruin", "Warlords Ruin", "WR"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] },
+        { "encounter": "复仇者", "encounterCode": "Vengeance", "aliases": ["Vengeance", "Locus of Wailing Grief"] },
+        { "encounter": "遭遇 2", "encounterCode": "2", "aliases": ["2"] }
+      ]
+    },
+    "spireOfStars": {
+      "activity": "星界之塔", "activityCode": "SotW", "aliases": ["SotW"],
+      "encounters": []
+    },
+    "shatteredThrone": {
+      "activity": "破碎王座", "activityCode": "ST", "aliases": ["Shattered Throne", "ST"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "pitHeresy": {
+      "activity": "异端深渊", "activityCode": "PoH", "aliases": ["Pit of Heresy", "PoH"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "eaterWorlds": {
+      "activity": "世界吞噬者", "activityCode": "E", "aliases": ["Eater of Worlds", "E"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "pInsurrection": {
+      "activity": "P-Insurrection", "activityCode": "P-Insurrection", "aliases": ["P-Insurrection", "Insurrection Prime"],
+      "encounters": [
+        { "encounter": "莫格斯", "encounterCode": "Morgeth", "aliases": ["Morgeth"] },
+        { "encounter": "Insurrection Prime", "encounterCode": "InsurrectionPrime", "aliases": ["Insurrection Prime", "InsurrectionPrime"] }
+      ]
+    },
+    "gardenSalvation": {
+      "activity": "救赎花园", "activityCode": "GoS", "aliases": ["Garden of Salvation", "GoS"],
+      "encounters": [
+        { "encounter": "胸部 1", "encounterCode": "Chest1", "aliases": ["Chest1", "Chest 1"] },
+        { "encounter": "圣化心灵", "encounterCode": "SanctifiedMind", "aliases": ["Sanctified Mind", "SanctifiedMind"] }
+      ]
+    },
+    "deepStoneLegacy": {
+      "activity": "深岩墓室", "activityCode": "DSC", "aliases": ["Deep Stone Crypt", "DSC"],
+      "encounters": [
+        { "encounter": "胸部 2", "encounterCode": "Chest2", "aliases": ["Chest2", "Chest 2"] },
+        { "encounter": "坦尼克斯", "encounterCode": "Taniks", "aliases": ["Taniks"] }
+      ]
+    },
+    "splicerDungeon": {
+      "activity": "SD", "activityCode": "SD", "aliases": ["SD"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "vespersHost": {
+      "activity": "Vesper's Host", "activityCode": "VH", "aliases": ["Vesper's Host", "VH"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "pCalus": {
+      "activity": "P-Calus", "activityCode": "P-Calus", "aliases": ["P-Calus"],
+      "encounters": [
+        { "encounter": "卡鲁斯", "encounterCode": "Calus", "aliases": ["Calus"] }
+      ]
+    },
+    "pMorgeth": {
+      "activity": "P-Morgeth", "activityCode": "P-Morgeth", "aliases": ["P-Morgeth"],
+      "encounters": [
+        { "encounter": "莫格斯", "encounterCode": "Morgeth", "aliases": ["Morgeth"] }
+      ]
+    },
+    "desertPerpetual": {
+      "activity": "Desert Perpetual (Epic)", "activityCode": "DesertPerpetual", "aliases": ["Desert Perpetual (Epic)", "Desert Perpetual", "DesertPerpetual"],
+      "encounters": [
+        { "encounter": "Koregos", "encounterCode": "KoregosAEI", "aliases": ["KoregosAEI", "Koregos AEI"] }
+      ]
+    },
+    "crotaEnd": {
+      "activity": "克罗塔的终局", "activityCode": "CE", "aliases": ["Crota's End", "Crotas End"],
+      "encounters": [
+        { "encounter": "噬灭者", "encounterCode": "Deathsinger", "aliases": ["Deathsinger"] },
+        { "encounter": "克罗塔", "encounterCode": "Crota", "aliases": ["Crota"] }
+      ]
+    },
+    "shatteredThroneSolo": {
+      "activity": "破碎王座", "activityCode": "ST", "aliases": ["Shattered Throne"],
+      "encounters": [
+        { "encounter": "首领", "encounterCode": "Boss", "aliases": ["Boss"] }
+      ]
+    },
+    "unknownRaid": {
+      "activity": "raid", "activityCode": "raid", "aliases": [], "encounters": []
+    }
+  },
+  "profiles": {
+    "d2checkpoints": {
+      "channels": ["d2checkpoints", "d2checkpoint"],
+      "minimumSections": 1,
+      "sections": [
+        { "activityId": "salvationsEdge", "headerAliases": ["SE", "Salvation's Edge"], "box": [0.00, 0.05, 0.18, 0.39] },
+        { "activityId": "kingsFall", "headerAliases": ["KF", "King's Fall"], "box": [0.18, 0.05, 0.16, 0.39] },
+        { "activityId": "rootNightmares", "headerAliases": ["RoN", "Root of Nightmares"], "box": [0.34, 0.05, 0.17, 0.39] },
+        { "activityId": "spireWatcher", "headerAliases": ["SotW", "Spire of the Watcher"], "box": [0.51, 0.05, 0.15, 0.39] },
+        { "activityId": "duality", "headerAliases": ["Duality"], "box": [0.66, 0.05, 0.17, 0.39] },
+        { "activityId": "ghostsDeep", "headerAliases": ["GotD", "Ghosts of the Deep"], "box": [0.83, 0.05, 0.17, 0.39] },
+        { "activityId": "crotasEnd", "headerAliases": ["CE", "Crota's End"], "box": [0.00, 0.44, 0.18, 0.27] },
+        { "activityId": "graspAvarice", "headerAliases": ["GoA", "Grasp of Avarice"], "box": [0.18, 0.44, 0.16, 0.27] },
+        { "activityId": "vaultGlass", "headerAliases": ["VoG", "Vault of Glass"], "box": [0.34, 0.44, 0.17, 0.27] },
+        { "activityId": "vowDisciple", "headerAliases": ["VotD", "Vow of the Disciple"], "box": [0.51, 0.44, 0.17, 0.27] },
+        { "activityId": "warlordsRuin", "headerAliases": ["WR", "Warlord's Ruin"], "box": [0.68, 0.44, 0.16, 0.27] },
+        { "activityId": "lastWish", "headerAliases": ["LW", "Last Wish"], "box": [0.84, 0.44, 0.16, 0.27] },
+        { "activityId": "pInsurrection", "headerAliases": ["P-Insurrection"], "box": [0.00, 0.72, 0.18, 0.25] },
+        { "activityId": "gardenSalvation", "headerAliases": ["GoS", "Garden of Salvation"], "box": [0.18, 0.72, 0.16, 0.25] },
+        { "activityId": "deepStoneLegacy", "headerAliases": ["DSC", "Deep Stone Crypt"], "box": [0.34, 0.72, 0.17, 0.25] },
+        { "activityId": "splicerDungeon", "headerAliases": ["SD"], "box": [0.51, 0.72, 0.17, 0.25] },
+        { "activityId": "vespersHost", "headerAliases": ["VH", "Vesper's Host"], "box": [0.68, 0.72, 0.16, 0.25] },
+        { "activityId": "pCalus", "headerAliases": ["P-Calus"], "box": [0.84, 0.72, 0.16, 0.25] },
+        { "activityId": "pMorgeth", "headerAliases": ["P-Morgeth"], "box": [0.84, 0.72, 0.16, 0.25] },
+        { "activityId": "pitHeresy", "headerAliases": ["PoH", "Pit of Heresy"], "box": [0.00, 0.94, 0.12, 0.08] },
+        { "activityId": "shatteredThrone", "headerAliases": ["ST", "Shattered Throne"], "box": [0.12, 0.94, 0.12, 0.08] },
+        { "activityId": "eaterWorlds", "headerAliases": ["E", "Eater of Worlds"], "box": [0.24, 0.94, 0.12, 0.08] }
+      ]
+    },
+    "soloraidsbot": {
+      "channels": ["soloraidsbot", "solo-raids-bot"],
+      "minimumSections": 1,
+      "sections": [
+        { "activityId": "kingsFall", "headerAliases": ["King's Fall", "Kings Fall"], "box": [0.00, 0.08, 0.17, 0.34] },
+        { "activityId": "rootNightmares", "headerAliases": ["Root of Nightmares"], "box": [0.18, 0.08, 0.21, 0.34] },
+        { "activityId": "vowDisciple", "headerAliases": ["Vow of the Disciple"], "box": [0.40, 0.08, 0.23, 0.34] },
+        { "activityId": "salvationsEdge", "headerAliases": ["Salvation's Edge", "Salvations Edge"], "box": [0.66, 0.08, 0.34, 0.34] },
+        { "activityId": "vaultGlass", "headerAliases": ["Vault of Glass"], "box": [0.00, 0.43, 0.20, 0.28] },
+        { "activityId": "lastWish", "headerAliases": ["Last Wish"], "box": [0.20, 0.43, 0.19, 0.28] },
+        { "activityId": "desertPerpetual", "headerAliases": ["Desert Perpetual (Epic)", "Desert Perpetual"], "box": [0.40, 0.43, 0.23, 0.28] },
+        { "activityId": "deepStoneCrypt", "headerAliases": ["Deep Stone Crypt"], "box": [0.64, 0.43, 0.36, 0.28] },
+        { "activityId": "crotasEnd", "headerAliases": ["Crota's End", "Crotas End"], "box": [0.00, 0.70, 0.20, 0.27] }
+      ]
+    },
+    "unknown": {
+      "channels": [],
+      "minimumSections": 1,
+      "sections": [
+        { "activityId": "kingsFall", "headerAliases": ["King's Fall", "Kings Fall"], "box": [0.00, 0.08, 0.17, 0.34] },
+        { "activityId": "rootNightmares", "headerAliases": ["Root of Nightmares"], "box": [0.18, 0.08, 0.21, 0.34] },
+        { "activityId": "vowDisciple", "headerAliases": ["Vow of the Disciple"], "box": [0.40, 0.08, 0.23, 0.34] },
+        { "activityId": "salvationsEdge", "headerAliases": ["Salvation's Edge", "Salvations Edge"], "box": [0.66, 0.08, 0.34, 0.34] },
+        { "activityId": "vaultGlass", "headerAliases": ["Vault of Glass"], "box": [0.00, 0.43, 0.20, 0.28] },
+        { "activityId": "lastWish", "headerAliases": ["Last Wish"], "box": [0.20, 0.43, 0.19, 0.28] },
+        { "activityId": "desertPerpetual", "headerAliases": ["Desert Perpetual (Epic)", "Desert Perpetual"], "box": [0.40, 0.43, 0.23, 0.28] },
+        { "activityId": "deepStoneCrypt", "headerAliases": ["Deep Stone Crypt"], "box": [0.64, 0.43, 0.36, 0.28] },
+        { "activityId": "crotasEnd", "headerAliases": ["Crota's End", "Crotas End"], "box": [0.00, 0.70, 0.20, 0.27] }
+      ]
+    }
+  }
+}

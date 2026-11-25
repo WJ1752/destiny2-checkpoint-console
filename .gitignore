@@ -1,0 +1,13 @@
+# 构建产物（.NET / 便携包）
+launcher/bin/
+launcher/obj/
+release*/
+新建文件夹/
+
+# 分发包与校验文件
+*.zip
+*.zip.sha256
+
+# 运行期数据与日志
+*.log
+node_modules/

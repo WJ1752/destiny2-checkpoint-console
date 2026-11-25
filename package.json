@@ -1,0 +1,14 @@
+{
+  "name": "destiny2-checkpoint-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "无需 Twitch 开发者应用的本机屏幕 OCR 检查点工具",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node desktop/main.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
