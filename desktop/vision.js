@@ -49,7 +49,7 @@ function checkpointNames(activityId, encounterCode) {
   return {
     activityId,
     activity: activityName || '未核实的活动名称',
-    encounter: encounterName || '未核实的进度节点',
+    encounter: encounterName || encounter?.aliases?.[0] || '未核实的进度节点',
     officialName: Boolean(activityName && encounterName)
   };
 }

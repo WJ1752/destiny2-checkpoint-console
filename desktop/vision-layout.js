@@ -41,7 +41,7 @@ function visualRows(words) {
   return rows;
 }
 
-function activityHeaders(activities, hasBoard) {
+function activityHeaders(activities, hasBoard, channel) {
   const aliases = new Map();
   for (const [activityId, activity] of Object.entries(activities)) {
     if (!activity.encounters?.length) continue;
@@ -54,6 +54,9 @@ function activityHeaders(activities, hasBoard) {
   }
   // On the public checkpoint boards, WinRT regularly reads the stylized GotD badge as GoTo.
   if (hasBoard && aliases.has('gotd')) aliases.set('goto', aliases.get('gotd'));
+  if (hasBoard && channel === 'd2chests' && Object.hasOwn(activities, 'equilibrium')) {
+    aliases.set('e', { activityId: 'equilibrium', label: 'E' });
+  }
   return aliases;
 }
 
@@ -173,7 +176,7 @@ function layoutSections(words, ocrWidth, ocrHeight, activities, channel) {
   if (!CHANNELS.includes(channel) || ocrWidth <= 0 || ocrHeight <= 0 || !Array.isArray(words)) return [];
   const rows = visualRows(words);
   const hasBoard = hasCheckpointBoard(words);
-  const aliases = activityHeaders(activities, hasBoard);
+  const aliases = activityHeaders(activities, hasBoard, channel);
   const detected = rows.map(row => ({ y: row.y, headers: rowHeaders(row, aliases) })).filter(row => row.headers.length > 0);
   const majorRows = detected.filter(row => row.headers.length > 1);
   const headings = detected.filter(row => {

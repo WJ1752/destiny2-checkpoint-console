@@ -71,3 +71,16 @@ test('recovers missing abbreviated columns only when a public board has corrobor
   const unverified = layoutSections(board, 1920, 1080, activities, 'd2checkpoints');
   assert.ok(!unverified.some(section => ['kingsFall', 'rootNightmares', 'ghostsDeep', 'eaterWorlds'].includes(section.activityId)));
 });
+
+test('reads the E column on the D2Chests board as Equilibrium', () => {
+  const title = row(0.05, [[0.052, 'Checkpoint'], [0.272, 'List']]);
+  const board = [
+    ...row(0.24, [[0.16, 'SotW'], [0.28, 'E'], [0.37, 'WR']]),
+    ...row(0.27, [[0.16, 'Chest1'], [0.28, 'Chest2'], [0.37, 'Chest']])
+  ];
+  const words = [...title, ...board];
+  assert.deepEqual(layoutSections(words, 1920, 1080, activities, 'd2chests').map(section => section.activityId), [
+    'spireWatcher', 'equilibrium', 'warlordsRuin'
+  ]);
+  assert.ok(!layoutSections(words, 1920, 1080, activities, 'd2checkpoints').some(section => section.activityId === 'equilibrium'));
+});

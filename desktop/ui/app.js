@@ -169,10 +169,11 @@ function renderReports(reports) {
   const ordered = [...reports].sort((a, b) => Date.parse(b.observedAt || 0) - Date.parse(a.observedAt || 0));
   ui.reportList.innerHTML = ordered.map(report => {
     const confirmed = report.status === 'available';
-    const note = report.officialName === false ? ' · 官方译名待核实' : confirmed && !report.canRequest ? ' · 指令待核实' : '';
+    const translationNote = report.officialName === false ? ' · 官方译名待核实' : '';
+    const commandNote = confirmed && !report.canRequest ? ' · 指令待核实' : '';
     return `<article class="report-card">
       <div class="report-status ${confirmed ? 'verified' : 'candidate'}"><i></i>${confirmed ? '连续画面确认' : '候选 · 请复核'}</div>
-      <div class="report-main"><b>${escapeHtml(reportActivity(report))}</b><small>${escapeHtml(reportEncounter(report))}</small><small class="report-source">${escapeHtml(report.displayName || report.login || 'Twitch 频道')} · ${escapeHtml(fmtTime(report.observedAt))}${note}</small></div>
+      <div class="report-main"><b>${escapeHtml(reportActivity(report))}</b><small>${escapeHtml(reportEncounter(report))}</small><small class="report-source">${escapeHtml(report.displayName || report.login || 'Twitch 频道')} · ${escapeHtml(fmtTime(report.observedAt))}${translationNote}${commandNote}</small></div>
       <div class="report-queue">${report.queueLength == null ? '队列未知' : `队列 ${escapeHtml(report.queueLength)}`}</div>
     </article>`;
   }).join('');

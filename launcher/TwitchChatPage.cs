@@ -20,11 +20,20 @@ internal static partial class TwitchChatPage
     internal static bool IsRequestId(string? requestId) => requestId is { Length: >= 1 and <= 80 } &&
         requestId.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_');
 
-    internal static bool IsQueueCommand(string? command) => command is { Length: >= 1 and <= 140 } &&
-        command == command.Trim() && QueueCommandPattern().IsMatch(command);
+    private const string BungieNamePattern = @"[^#\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+#[0-9]{4}\z";
 
-    [GeneratedRegex(@"\A!queue [a-z0-9][a-z0-9-]{0,15}(?: [a-z0-9][a-z0-9-]{0,15}){0,2} [^#\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+#[0-9]{4}\z", RegexOptions.CultureInvariant)]
+    internal static bool IsQueueCommand(string login, string? command) => command is { Length: >= 1 and <= 140 } &&
+        command == command.Trim() && (QueueCommandPattern().IsMatch(command) ||
+        (login == "soloraidsbot" && SoloRaidQueueCommandPattern().IsMatch(command)));
+
+    [GeneratedRegex(@"\A!queue [a-z0-9][a-z0-9-]{0,15}(?: [a-z0-9][a-z0-9-]{0,15}){0,2} " + BungieNamePattern, RegexOptions.CultureInvariant)]
     private static partial Regex QueueCommandPattern();
+
+    [GeneratedRegex(
+        @"\A!queue [A-Z][A-Za-z]*(?:'s)?(?: [A-Za-z]+){1,3}(?: \(Epic\))? " +
+        @"(?:Maze|[0-5] (?:Post )?[A-Z][A-Za-z]*(?:-[A-Z][A-Za-z]*)?) [NM] " + BungieNamePattern,
+        RegexOptions.CultureInvariant)]
+    private static partial Regex SoloRaidQueueCommandPattern();
 
     internal static string ProbeScript(string login, string command, long deadline, Phase phase) =>
         $"({InspectCommand})({JsonSerializer.Serialize(login)}, {JsonSerializer.Serialize(command)}, {deadline.ToString(CultureInfo.InvariantCulture)}, {(int)phase})";

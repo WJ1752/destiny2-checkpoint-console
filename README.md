@@ -11,7 +11,7 @@ Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查
 
 程序内网页登录和聊天发送使用同一个 Twitch 网页会话。分发者也可通过 `D2_TWITCH_CLIENT_ID` 启用可选 API 授权，用于每分钟检查这些频道的公开直播预览。 [Twitch 应用注册](https://dev.twitch.tv/docs/authentication/register-app/) · [直播接口](https://dev.twitch.tv/docs/api/reference/streams#get-streams)
 
-名称来自 Bungie 简体中文 Manifest，活动与遭遇使用可追溯的官方条目。部分机器人自定义节点会显示译名待核实。申请功能要求相应的频道规则已核实，且进度状态仍然有效。 [Bungie Manifest](https://bungie-net.github.io/multi/operation_get_Destiny2-GetDestinyManifest.html)
+7 个默认频道均支持按频道规则自动生成申请指令。申请要求进度已确认并仍有效，且活动、节点与难度有对应规则。部分机器人自定义节点会显示直播看板名称。 [运营方队列助手](https://www.travelerschosen.org/#/queuehelper) · [Bungie Manifest](https://bungie-net.github.io/multi/operation_get_Destiny2-GetDestinyManifest.html)
 
 直播预览和手动截图在本机内存中识别。WebView2 在本机保存网页登录会话。提交申请时，指令中的 Bungie ID 会出现在所选频道的聊天中。
 

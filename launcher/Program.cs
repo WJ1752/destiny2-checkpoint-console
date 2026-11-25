@@ -494,7 +494,7 @@ internal sealed class DesktopWindow : Form
             else if (type == "send-twitch-web" && ReadString(root, "requestId") is { } requestId && TwitchChatPage.IsRequestId(requestId))
             {
                 var command = ReadString(root, "command");
-                if (!hasLogin || command is null || !TwitchChatPage.IsQueueCommand(command))
+                if (!hasLogin || command is null || !TwitchChatPage.IsQueueCommand(login, command))
                 {
                     PostTwitchWebResult(requestId, false, "频道或申请指令无效，请重新预览。");
                     return;

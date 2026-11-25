@@ -365,7 +365,7 @@ async function refreshMonitor() {
 function queueError(status, message) { return Object.assign(new Error(message), { status }); }
 
 function canRequest(report) {
-  return report.officialName === true && Boolean(buildQueueCommand(report, 'Guardian#1234'));
+  return Boolean(buildQueueCommand(report, 'Guardian#1234'));
 }
 
 function encounterLabel(report) {
@@ -374,7 +374,8 @@ function encounterLabel(report) {
 }
 
 function progressKey(report) {
-  return JSON.stringify([report.activityId || report.activityCode, encounterLabel(report), report.difficultyCode]);
+  const encounter = report.officialName === false ? report.encounterCode : encounterLabel(report);
+  return JSON.stringify([report.activityId || report.activityCode, encounter, report.difficultyCode]);
 }
 
 function queueSelection(body, pickBest) {

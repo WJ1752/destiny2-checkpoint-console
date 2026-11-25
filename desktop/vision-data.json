@@ -20,7 +20,7 @@
     "kingsFall": {
       "activity": "国王的陨落", "nameSource": "R:3047702042", "activityCode": "KF", "aliases": ["King's Fall", "Kings Fall", "KF"],
       "encounters": [
-        { "encounter": "高尔格罗斯", "nameSource": "O:345341942", "encounterCode": "Golgoroth", "aliases": ["Golgoroth"], "queueCommands": { "soloraidsbot": { "slot": "3" } } },
+        { "encounter": "高尔格罗斯", "nameSource": "O:345341942", "encounterCode": "Golgoroth", "aliases": ["Golgoroth", "GoIgoroth"] },
         { "encounter": "欧里克斯", "nameSource": "O:345341936", "encounterCode": "Oryx", "aliases": ["Oryx"] },
         { "encounter": "战争祭司", "nameSource": "O:345341941", "encounterCode": "Warpriest", "aliases": ["Warpriest"] },
         { "encounter": "女儿们", "nameSource": "O:345341943", "encounterCode": "Daughters", "aliases": ["Daughters", "Sisters"] },
@@ -35,7 +35,7 @@
       "encounters": [
         { "encounter": "灾变", "nameSource": "O:908791135", "encounterCode": "Cataclysm", "aliases": ["Cataclysm"] },
         { "encounter": "分裂", "nameSource": "O:908791134", "encounterCode": "Scission", "aliases": ["Scission"] },
-        { "encounter": "宏观世界", "nameSource": "O:908791133", "encounterCode": "Macrocosm", "aliases": ["Macrocosm", "Explicator", "Explicator of Planets", "Explicator of Worlds"] },
+        { "encounter": "宏观世界", "nameSource": "O:908791133", "encounterCode": "Macrocosm", "aliases": ["Macrocosm", "Explicator", "ExpIicator", "Explicator of Planets", "Explicator of Worlds"] },
         { "encounter": "奈扎雷克", "nameSource": "O:908791132", "encounterCode": "Nezarec", "aliases": ["Nezarec"] },
         { "encounter": "隐藏宝箱", "nameSource": "R:734490740", "encounterCode": "Chest1", "aliases": ["Chest1", "Ches1", "Chest 1"] },
         { "encounter": "隐藏宝箱", "nameSource": "R:734490740", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2"] }
@@ -55,7 +55,7 @@
     "salvationsEdge": {
       "activity": "救赎的边缘", "nameSource": "A:2192826039", "activityCode": "SE", "aliases": ["Salvation's Edge", "Salvations Edge", "SE"],
       "encounters": [
-        { "encounter": "消散", "nameSource": "O:514666288", "encounterCode": "Herald", "aliases": ["Herald", "Herald of Finality", "Dissipation"] },
+        { "encounter": "消散", "nameSource": "O:514666288", "encounterCode": "Herald", "aliases": ["Herald", "HeraId", "Herald of Finality", "Dissipation"] },
         { "encounter": "真理", "nameSource": "O:514666290", "encounterCode": "Verity", "aliases": ["Verity"] },
         { "encounter": "见证者", "nameSource": "O:514666293", "encounterCode": "Witness", "aliases": ["Witness"] },
         { "encounter": "隐藏宝箱", "nameSource": "R:2307589343", "encounterCode": "Chest1", "aliases": ["Chest1", "Ches1", "Chest 1"] },
@@ -125,7 +125,7 @@
       "encounters": [
         { "encounter": null, "encounterCode": "PostTemplar", "aliases": ["Post-Templar", "Post Templar"] },
         { "encounter": "圣堂武士", "nameSource": "O:478733865", "encounterCode": "Templar", "aliases": ["Templar", "TempIar"] },
-        { "encounter": "埃希恩", "nameSource": "O:478733871", "encounterCode": "Atheon", "aliases": ["Atheon"], "queueCommands": { "soloraidsbot": { "slot": "5" } } },
+        { "encounter": "埃希恩", "nameSource": "O:478733871", "encounterCode": "Atheon", "aliases": ["Atheon"] },
         { "encounter": "汇流", "nameSource": "O:478733867", "encounterCode": "Confluxes", "aliases": ["Confluxes", "Conflux"] },
         { "encounter": "神谕", "nameSource": "O:478733866", "encounterCode": "Oracles", "aliases": ["Oracles", "Oracle"] },
         { "encounter": "守门人", "nameSource": "O:478733864", "encounterCode": "Gatekeeper", "aliases": ["Gatekeeper"] }
@@ -235,7 +235,8 @@
     "desertPerpetual": {
       "activity": "永恒沙漠（史诗）", "nameSource": "A:3817322389", "activityCode": "DesertPerpetual", "aliases": ["Desert Perpetual (Epic)", "Desert Perpetual", "DesertPerpetual"],
       "encounters": [
-        { "encounter": "科雷戈斯", "nameSource": "O:258756024", "encounterCode": "KoregosAEI", "aliases": ["KoregosAEI", "Koregos AEI"] },
+        { "encounter": "科雷戈斯（AEI）", "nameSource": "O:258756024", "encounterCode": "KoregosAEI", "aliases": ["KoregosAEI", "Koregos AEI", "KoregosAEl"] },
+        { "encounter": "科雷戈斯（EAI）", "nameSource": "O:258756024", "encounterCode": "KoregosEAI", "aliases": ["KoregosEAI", "Koregos EAI", "KoregosEAl", "KoregGEAl"] },
         { "encounter": "伊亚特罗斯", "nameSource": "O:258756025", "encounterCode": "Iatros", "aliases": ["Iatros"] },
         { "encounter": "埃波普特斯", "nameSource": "O:258756026", "encounterCode": "Epoptes", "aliases": ["Epoptes"] },
         { "encounter": "阿格莱奥斯", "nameSource": "O:258756027", "encounterCode": "Agraios", "aliases": ["Agraios"] }

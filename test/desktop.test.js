@@ -121,6 +121,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   const preferredChannel = 'd2checkpoints';
   const otherChannel = 'luckbot9';
   const autoReadChannel = 'travelerschosenteam';
+  const postTemplarChannel = 'destiny2checkpoints';
   const sentMessages = [];
   let connected = false;
   let externalFetchCalls = 0;
@@ -131,6 +132,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   const firstB = pngFrame(80);
   const secondB = pngFrame(81);
   const blankA = pngFrame(170);
+  const postTemplarFrames = [pngFrame(201), pngFrame(202)];
   const jpegC = validJpegFrame();
   const webpVp8 = webpFrame('VP8 ');
   const webpVp8l = webpFrame('VP8L');
@@ -142,6 +144,12 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
   frames.set(crypto.createHash('sha256').update(firstB).digest('hex'), { recognized: true, queueLength: 8, reports: [report()] });
   frames.set(crypto.createHash('sha256').update(secondB).digest('hex'), { recognized: true, queueLength: 7, reports: [report()] });
   frames.set(crypto.createHash('sha256').update(blankA).digest('hex'), { recognized: false, queueLength: null, reports: [] });
+  for (const frame of postTemplarFrames) {
+    frames.set(crypto.createHash('sha256').update(frame).digest('hex'), { recognized: true, queueLength: 1, reports: [{
+      activity: '玻璃拱顶', activityId: 'vaultGlass', activityCode: 'VoG', encounter: 'Post-Templar',
+      encounterCode: 'PostTemplar', officialName: false, difficulty: '大师', difficultyCode: 'M'
+    }] });
+  }
 
   const visionPath = require.resolve('../desktop/vision');
   const twitchPath = require.resolve('../desktop/twitch');
@@ -151,7 +159,7 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     async recognizeImage(image, options) {
       recognizeCalls += 1;
       assert.equal(options.isScreenshot, options.channel !== autoReadChannel);
-      assert.ok([preferredChannel, otherChannel, autoReadChannel, 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
+      assert.ok([preferredChannel, otherChannel, autoReadChannel, postTemplarChannel, 'channel_c', 'channel_webp_0', 'channel_webp_1', 'channel_webp_2'].includes(options.channel));
       const key = crypto.createHash('sha256').update(image).digest('hex');
       const result = frames.get(key);
       assert.ok(result, 'the HTTP body must be the exact submitted image bytes');
@@ -334,6 +342,17 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
     assert.equal((await postJson('/api/queue/web-send', webRequest)).status, 409);
     assert.equal((await postJson('/api/queue/send', webRequest)).status, 409);
     assert.equal(sentMessages.length, 1, 'the native webpage route should not call the Twitch API');
+
+    for (const frame of postTemplarFrames) {
+      assert.equal((await imageRequest(port, postTemplarChannel, frame, { cookie, origin })).status, 200);
+    }
+    const postTemplarState = JSON.parse((await httpRequest(port, '/api/state', 'GET', { Cookie: cookie })).body);
+    const postTemplar = postTemplarState.reports.find(item => item.login === postTemplarChannel);
+    assert.equal(postTemplar.officialName, false);
+    assert.equal(postTemplar.canRequest, true);
+    const postTemplarPreview = await postJson('/api/queue/preview', { reportId: postTemplar.id, bungieId });
+    assert.equal(postTemplarPreview.status, 200);
+    assert.equal(JSON.parse(postTemplarPreview.body).command, '!queue vog post-templar m 测试玩家#0123');
 
     const autoReadPath = `/api/screen-scan?login=${autoReadChannel}&layout=video&source=live`;
     for (const [index, frame] of [firstA, secondA].entries()) {
