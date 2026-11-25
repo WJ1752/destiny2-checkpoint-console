@@ -9,7 +9,6 @@ const model = {
   authBusy: false,
   queueBusy: false,
   preview: null,
-  queueAttempted: false,
   pendingWebSend: null,
   progressRead: null,
   autoRead: null,
@@ -40,7 +39,7 @@ const ui = {
   monitorControls: $('monitor-controls'), monitorNow: $('monitor-now'), disconnect: $('twitch-disconnect'), monitorStatusText: $('auto-monitor-status'),
   queueForm: $('queue-form'), playerId: $('player-id'), progressChoice: $('progress-choice'), prepareQueue: $('prepare-queue'),
   queuePreview: $('queue-preview'), queueRecommendation: $('queue-recommendation'), queueCommand: $('queue-command'),
-  openQueueChat: $('open-queue-chat'), queueChatHint: $('queue-chat-hint'), sendQueue: $('send-queue'),
+  openQueueChat: $('open-queue-chat'), queueChatHint: $('queue-chat-hint'),
   copyQueue: $('copy-queue'), queueChannel: $('queue-channel'), queueStatus: $('queue-status')
 };
 
@@ -254,12 +253,12 @@ function renderQueue() {
   ui.prepareQueue.disabled = model.queueBusy || !options.length;
   ui.queuePreview.classList.toggle('hidden', !model.preview);
   const embedded = Boolean(webviewBridge());
-  ui.openQueueChat.textContent = embedded ? '打开 Twitch 聊天' : '在浏览器打开聊天';
+  ui.prepareQueue.textContent = embedded ? '匹配并发送' : '匹配最佳频道';
+  ui.openQueueChat.textContent = embedded ? '登录 Twitch' : '在浏览器打开聊天';
+  ui.openQueueChat.disabled = model.queueBusy;
   ui.queueChatHint.textContent = embedded
-    ? '在 Twitch 聊天中登录，匹配后核对频道和指令。'
+    ? '首次使用请登录 Twitch。每次申请会自动匹配频道并发送一条指令。'
     : '匹配后复制指令，在 Twitch 频道聊天中发送。';
-  ui.sendQueue.classList.toggle('hidden', !embedded);
-  ui.sendQueue.disabled = !embedded || model.queueBusy || model.queueAttempted;
   ui.copyQueue.classList.toggle('hidden', embedded);
   ui.queueChannel.classList.toggle('hidden', embedded);
   if (!model.preview) return;
@@ -270,42 +269,37 @@ function renderQueue() {
 }
 function clearQueuePreview() {
   model.preview = null;
-  model.queueAttempted = false;
   ui.queueStatus.textContent = '仅可申请已确认可用且指令已核实的检查点。';
   renderQueue();
 }
-async function prepareQueue(event) {
+async function submitQueue(event) {
   event.preventDefault();
   if (model.queueBusy) return;
   const playerId = ui.playerId.value.trim();
   const reportId = ui.progressChoice.value;
-  clearQueuePreview();
+  const bridge = webviewBridge();
+  const selectionIsCurrent = () => ui.playerId.value.trim() === playerId && ui.progressChoice.value === reportId;
+  const changedSelection = '所选进度已变化，请重新选择检查点。';
+  model.preview = null;
   model.queueBusy = true;
+  ui.queueStatus.textContent = '正在匹配可申请的频道…';
   renderQueue();
+  if (bridge) cancelProgressRead();
   try {
     const preview = await post('/api/queue/preview', { bungieId: playerId, reportId });
-    if (ui.playerId.value.trim() !== playerId || ui.progressChoice.value !== reportId) return;
-    model.preview = { ...preview, bungieId: playerId };
-    ui.queueStatus.textContent = webviewBridge() ? '确认已登录 Twitch，再核对频道和指令并点击发送。' : '在浏览器中把复制的指令粘贴到频道聊天并发送。';
-  } catch (error) {
-    ui.queueStatus.textContent = error.message;
-  } finally {
-    model.queueBusy = false;
+    if (!selectionIsCurrent()) throw new Error(changedSelection);
+    const request = { ...preview, bungieId: playerId };
+    model.preview = request;
+    if (!bridge) {
+      ui.queueStatus.textContent = '在浏览器中把复制的指令粘贴到频道聊天并发送。';
+      return;
+    }
+
+    ui.queueStatus.textContent = `正在 @${request.login} 的 Twitch 聊天中提交…`;
     renderQueue();
-  }
-}
-async function sendQueue() {
-  const bridge = webviewBridge();
-  if (!bridge || !model.preview || model.queueBusy || model.queueAttempted) return;
-  model.queueBusy = true;
-  const request = model.preview;
-  renderQueue();
-  ui.queueStatus.textContent = '正在核对申请并打开 Twitch 聊天…';
-  try {
     const requestId = window.crypto.randomUUID();
     const { login, command } = await post('/api/queue/web-send', request);
-    if (model.preview !== request) return;
-    model.queueAttempted = true;
+    if (!selectionIsCurrent()) throw new Error(changedSelection);
     if (!validLogin(login) || login !== request.login || command !== request.command) throw new Error('频道或指令已变化，请重新匹配检查点。');
     const timer = setTimeout(() => {
       finishWebQueue(requestId, false, '未收到网页发送结果。请查看聊天确认状态，再决定是否重新匹配并发送。');
@@ -313,11 +307,11 @@ async function sendQueue() {
     model.pendingWebSend = { requestId, request, timer };
     bridge.postMessage({ type: 'send-twitch-web', login, command, requestId });
   } catch (error) {
-    if (model.pendingWebSend?.request === request) {
+    if (model.pendingWebSend) {
       clearTimeout(model.pendingWebSend.timer);
       model.pendingWebSend = null;
     }
-    if (model.preview === request) ui.queueStatus.textContent = error.message;
+    ui.queueStatus.textContent = error.message;
   } finally {
     model.queueBusy = model.pendingWebSend !== null;
     renderQueue();
@@ -338,6 +332,7 @@ function finishWebQueue(requestId, submitted, message) {
   renderQueue();
 }
 function openQueueChat() {
+  if (model.queueBusy) return;
   const login = validLogin(model.preview?.login) || validLogin(ui.channelLogin?.value) || 'd2checkpoints';
   const bridge = webviewBridge();
   cancelProgressRead();
@@ -767,11 +762,10 @@ function bindEvents() {
     try { await post('/api/monitor/refresh'); await loadState(false); }
     catch (error) { toast(error.message, 'error'); }
   });
-  ui.queueForm?.addEventListener('submit', event => void prepareQueue(event));
+  ui.queueForm?.addEventListener('submit', event => void submitQueue(event));
   ui.playerId?.addEventListener('input', clearQueuePreview);
   ui.progressChoice?.addEventListener('change', clearQueuePreview);
   ui.openQueueChat?.addEventListener('click', openQueueChat);
-  ui.sendQueue?.addEventListener('click', () => void sendQueue());
   ui.copyQueue?.addEventListener('click', () => void copyQueue());
   ui.imageFile?.addEventListener('change', () => {
     if (ui.imageTest) ui.imageTest.disabled = !ui.imageFile.files?.length;

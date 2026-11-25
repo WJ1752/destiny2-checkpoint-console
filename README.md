@@ -1,15 +1,15 @@
 # 命运 2 检查点指挥台
 
-Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查点来源，并按频道规则生成申请指令。
+Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查点来源，并按频道规则提交申请指令。
 
 ## 使用
 
 1. 解压完整便携包，双击 `D2Checkpoint.exe`。勾选「自动轮询」后，程序会在后台依次读取监测频道，每轮结束约 2 分钟后再读。设置会保留，工作台收起到托盘后仍可轮询。也可以点击「一键读取进度」立即开始手动读取，手动读取时请保持内置 Twitch 窗口在前台。
 2. 默认频道为 `d2checkpoints`、`soloraidsbot`、`luckbot9`、`destinycheckpoints`、`travelerschosenteam`、`d2chests` 和 `destiny2checkpoints`。两张不同画面都识别到同一节点后，工作台将其标为已确认。也可打开单个频道手动识别，或导入浏览器里的直播截图。
-3. 点击工作台的 Twitch 登录入口，在程序打开的 Twitch 官方网页中登录自己的账号。登录和账号验证由 Twitch 页面处理。
-4. 工作台会显示直播看板上识别到的队列人数和开放或关闭状态。输入完整 Bungie ID（例如 `Guardian#1234`），选择活动节点和难度，点击「匹配最佳频道」。工作台会跳过队列已关闭的频道，并比较等待估时和队列长度。确认频道和指令后点击「发送」，是否入队以频道机器人回复为准。
+3. 首次使用时点击工作台的「登录 Twitch」，在程序打开的 Twitch 官方网页中完成登录。同一 Windows 用户重启程序或切换频道时会复用仍有效的会话，Twitch 要求重新验证时请在网页中完成。
+4. 输入完整 Bungie ID（例如 `Guardian#1234`），选择活动节点和难度，点击「匹配并发送」。程序会跳过队列已关闭的频道，比较等待估时和队列长度，并在匹配到的频道提交一次申请指令。是否入队以频道机器人回复为准。
 
-程序内网页登录和聊天发送使用同一个 Twitch 网页会话。分发者也可通过 `D2_TWITCH_CLIENT_ID` 启用可选 API 授权，用于每分钟检查这些频道的公开直播预览。 [Twitch 应用注册](https://dev.twitch.tv/docs/authentication/register-app/) · [直播接口](https://dev.twitch.tv/docs/api/reference/streams#get-streams)
+便携版通过 Twitch 网页会话发送申请，无需配置 Twitch 开发者应用。分发者也可通过 `D2_TWITCH_CLIENT_ID` 启用可选 API 授权，用于每分钟检查这些频道的公开直播预览。 [Twitch 应用注册](https://dev.twitch.tv/docs/authentication/register-app/) · [直播接口](https://dev.twitch.tv/docs/api/reference/streams#get-streams)
 
 7 个默认频道均支持按频道规则自动生成申请指令。申请要求进度已确认并仍有效，且活动、节点与难度有对应规则。部分机器人自定义节点会显示直播看板名称。 [运营方队列助手](https://www.travelerschosen.org/#/queuehelper) · [Bungie Manifest](https://bungie-net.github.io/multi/operation_get_Destiny2-GetDestinyManifest.html)
 

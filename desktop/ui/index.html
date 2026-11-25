@@ -93,20 +93,19 @@
           <div class="panel-heading">
             <div class="panel-title"><span class="panel-icon" data-icon="queue" aria-hidden="true"></span><h2 id="queue-title">申请检查点</h2></div>
           </div>
-          <p id="queue-chat-hint" class="panel-description queue-chat-hint">在 Twitch 聊天中登录，匹配后核对频道和指令。</p>
+          <p id="queue-chat-hint" class="panel-description queue-chat-hint">首次使用请登录 Twitch。每次申请会自动匹配频道并发送一条指令。</p>
           <form id="queue-form" class="progress-controls queue-form">
             <label class="progress-field">Bungie ID<input id="player-id" class="text-input" placeholder="玩家名称#1234" maxlength="80" autocomplete="off" spellcheck="false" required></label>
             <label class="progress-field progress-choice">检查点<select id="progress-choice" class="text-input" required disabled><option value="">等待可申请进度</option></select></label>
             <div class="progress-controls queue-actions">
-              <button id="prepare-queue" class="button button-primary" type="submit" disabled>匹配最佳频道</button>
-              <button id="open-queue-chat" class="button button-outline" type="button">打开 Twitch 聊天</button>
+              <button id="prepare-queue" class="button button-primary" type="submit" disabled>匹配并发送</button>
+              <button id="open-queue-chat" class="button button-outline" type="button">登录 Twitch</button>
             </div>
           </form>
           <div id="queue-preview" class="queue-preview hidden">
             <p id="queue-recommendation" class="panel-description"></p>
             <label class="progress-field">频道申请指令<input id="queue-command" class="text-input" readonly></label>
             <div class="progress-controls">
-              <button id="send-queue" class="button button-primary hidden" type="button">在 Twitch 聊天发送</button>
               <button id="copy-queue" class="button button-primary" type="button">复制指令并打开聊天</button>
               <a id="queue-channel" class="button button-outline" target="_blank" rel="noopener noreferrer">打开频道聊天</a>
             </div>
