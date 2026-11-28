@@ -472,13 +472,13 @@ function renderProgressRead() {
   ui.autoRead.checked = model.autoRead === true;
   ui.autoRead.disabled = !available || model.autoRead === null || model.autoReadSaving;
   ui.autoReadStatus.textContent = model.autoReadSaving ? '正在保存…' : model.nextAutoReadAt ?
-    `下轮约 ${fmtTime(model.nextAutoReadAt)}` : model.autoRead && running && batch.automatic ? '正在后台读取' : '每轮结束约 2 分钟后再读';
+    `下轮约 ${fmtTime(model.nextAutoReadAt)}` : model.autoRead && running && !batch.cancelled ? '正在后台读取' : '每轮结束约 2 分钟后再读';
   ui.cancelRead.classList.toggle('hidden', !running || batch.cancelled);
   ui.readMeter.classList.toggle('hidden', !batch);
   ui.readResults.classList.toggle('hidden', !batch);
   if (!batch) {
     ui.readStatus.textContent = !available ? '一键读取在 Windows 桌面版可用。也可导入直播截图。' :
-      channelCount ? `将依次识别 ${channelCount} 个频道的直播画面。` : model.state ? '添加 Twitch 频道后即可读取。' : '正在加载频道列表…';
+      channelCount ? `将在后台依次识别 ${channelCount} 个频道的直播画面。` : model.state ? '添加 Twitch 频道后即可读取。' : '正在加载频道列表…';
     return;
   }
 
@@ -487,8 +487,8 @@ function renderProgressRead() {
   const stopped = batch.cancelled || batch.failed;
   ui.readMeter.max = batch.items.length;
   ui.readMeter.value = batch.completed;
-  const mode = batch.automatic ? '自动读取' : '读取';
-  if (stopped) ui.readStatus.textContent = `已停止${mode} · 处理 ${progress} 个频道。`;
+  const mode = batch.automatic ? '自动读取' : '后台读取';
+  if (stopped) ui.readStatus.textContent = `${running ? '正在停止' : '已停止'}${mode} · 处理 ${progress} 个频道。`;
   else if (running) ui.readStatus.textContent = `${mode} ${progress} · ${current ? `正在读取 @${current}` : '正在准备'}`;
   else ui.readStatus.textContent = `${mode}完成 · 处理 ${progress} 个频道。`;
   ui.readResults.innerHTML = batch.items.map(item => {
@@ -517,7 +517,7 @@ function requestChannelFrames(batch, login) {
       cancelChannelRead(bridge, requestId);
     }, CHANNEL_READ_TIMEOUT_MS);
     batch.pending = { requestId, login, finish };
-    try { bridge.postMessage({ type: 'read-twitch-channel', login, requestId, background: batch.automatic }); }
+    try { bridge.postMessage({ type: 'read-twitch-channel', login, requestId, background: true }); }
     catch { finish({ frames: [], message: '无法请求桌面识别窗口。' }); }
   });
 }
@@ -621,12 +621,9 @@ function cancelProgressRead() {
   batch.cancelled = true;
   if (batch.current) batch.current.message = '已取消读取。';
   batch.controller.abort();
-  if (batch.pending) {
-    const { requestId, finish } = batch.pending;
-    const bridge = webviewBridge();
-    if (bridge) cancelChannelRead(bridge, requestId);
-    finish({ frames: [] });
-  }
+  // Keep the batch running until the native capture releases its lock and replies, or times out.
+  const bridge = webviewBridge();
+  if (batch.pending && bridge) cancelChannelRead(bridge, batch.pending.requestId);
   renderProgressRead();
 }
 async function openChannel(value, external = false) {
