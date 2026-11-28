@@ -17,6 +17,12 @@
 
 脚本使用官方 Node.js `22.23.3` Windows x64 压缩包并校验官方 SHA-256，然后生成 `release/D2Checkpoint.exe`、`release/runtime/node.exe`、`release/app/desktop/**` 及说明文件。Node.js 运行时许可一同放在 `release/runtime/`。分发时请包含完整目录。
 
+## 自动更新与发布
+
+提交推送到 `main` 后，GitHub Actions 运行测试和便携版启动检查，并发布带 SHA-256 校验文件的 Windows x64 ZIP。发布版使用四段数字版本号。本地未指定 `-Version` 的构建使用 `1.0.0.0`。
+
+每次双击 `D2Checkpoint.exe` 时会先检查 GitHub Releases。新版通过校验后，启动器等待当前进程退出并切换到新版。离线、校验失败或无法写入安装目录时，程序继续使用本机版本。更新不需要安装 Git。频道设置和 Twitch 登录数据位于 `%LOCALAPPDATA%`，无需迁移。
+
 ## 启动行为
 
 - 启动器以无窗口方式启动内置 Node 服务，选择系统分配的临时端口，并读取 `D2_READY http://127.0.0.1:<port>/` 就绪行。

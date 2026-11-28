@@ -30,22 +30,37 @@ internal static class StartupDiagnostics
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         try
         {
+            if (args is [PortableUpdateInstaller.ApplyArgument])
+            {
+                PortableUpdateInstaller.ApplyStagedUpdate();
+                return;
+            }
+
+            (string StageName, int HelperId)? update = null;
+            if (args is [PortableUpdateInstaller.CompleteArgument, var stageName, var helper] &&
+                PortableUpdateInstaller.IsStageName(stageName) && int.TryParse(helper, out var helperId) && helperId > 0)
+                update = (stageName, helperId);
+
             StartupDiagnostics.Write("launcher-main-entered");
             ApplicationConfiguration.Initialize();
             StartupDiagnostics.Write("winforms-initialized");
-            using var instance = new Mutex(true, "Local\\D2Checkpoint.PortableShell", out bool createdNew);
-            if (!createdNew)
+            using var instance = new Mutex(false, PortableUpdateInstaller.MutexName);
+            if (!PortableUpdateInstaller.AcquireMutex(instance, update.HasValue ? 12_000 : 0))
             {
                 MessageBox.Show("检查点指挥台已在系统托盘中运行。", NativeTheme.WorkbenchTitle, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            StartupDiagnostics.Write("application-loop-entered");
-            Application.Run(new D2AppContext());
-            StartupDiagnostics.Write("application-loop-exited");
+            try
+            {
+                StartupDiagnostics.Write("application-loop-entered");
+                Application.Run(new D2AppContext(update));
+                StartupDiagnostics.Write("application-loop-exited");
+            }
+            finally { instance.ReleaseMutex(); }
         }
         catch (Exception error)
         {
@@ -61,6 +76,8 @@ internal sealed class D2AppContext : ApplicationContext
     private readonly Form _dispatcher;
     private readonly NotifyIcon _tray;
     private readonly ToolStripMenuItem _showItem;
+    private readonly (string StageName, int HelperId)? _completedUpdate;
+    private readonly CancellationTokenSource _updateCheck = new(TimeSpan.FromMinutes(3));
     private Process? _node;
     private Uri? _serviceUri;
     private string _launchKey = string.Empty;
@@ -73,8 +90,9 @@ internal sealed class D2AppContext : ApplicationContext
     private bool _stopping;
     private DateTime _lastShowUtc = DateTime.MinValue;
 
-    public D2AppContext()
+    public D2AppContext((string StageName, int HelperId)? completedUpdate)
     {
+        _completedUpdate = completedUpdate;
         _showItem = new ToolStripMenuItem("打开指挥台", null, (_, _) => ShowConsole());
         var menu = new ContextMenuStrip();
         NativeTheme.StyleTrayMenu(menu);
@@ -117,12 +135,26 @@ internal sealed class D2AppContext : ApplicationContext
         try
         {
             StartupDiagnostics.Write("startup-init-entered");
+            if (_completedUpdate is null)
+            {
+                _tray.Text = "检查点指挥台 · 正在检查更新";
+                var scheduled = await PortableUpdateInstaller.TryStartUpdateAsync(_updateCheck.Token);
+                if (_stopping) return;
+                if (scheduled)
+                {
+                    ExitThread();
+                    return;
+                }
+                _tray.Text = NativeTheme.WorkbenchTitle;
+            }
             var launchKey = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             _launchKey = launchKey;
             StartupDiagnostics.Write("starting-node-service");
             _serviceUri = await StartServiceAsync(launchKey);
             StartupDiagnostics.Write("node-service-ready");
             if (_stopping) return;
+            if (_completedUpdate is { } update)
+                _ = Task.Run(() => PortableUpdateInstaller.Complete(update.StageName, update.HelperId));
             DesktopWindow? window = null;
             try
             {
@@ -242,10 +274,7 @@ internal sealed class D2AppContext : ApplicationContext
     {
         // In a single-file self-extracting publish, AppContext.BaseDirectory may point
         // at .NET's temporary extraction directory. Resolve bundled assets beside the EXE.
-        var executable = Environment.ProcessPath;
-        var root = !string.IsNullOrWhiteSpace(executable)
-            ? Path.GetDirectoryName(executable) ?? AppContext.BaseDirectory
-            : AppContext.BaseDirectory;
+        var root = PortableUpdateInstaller.BundleRoot;
         var appDir = Path.Combine(root, "app");
         var mainJs = Path.Combine(appDir, "desktop", "main.js");
         var nodeExe = Path.Combine(root, "runtime", "node.exe");
@@ -403,6 +432,8 @@ internal sealed class D2AppContext : ApplicationContext
     {
         if (_stopping) return;
         _stopping = true;
+        _updateCheck.Cancel();
+        _updateCheck.Dispose();
         Application.Idle -= StartOnIdle;
         _launchKey = string.Empty;
         try { _desktopWindow?.AllowCloseAndDispose(); } catch { }

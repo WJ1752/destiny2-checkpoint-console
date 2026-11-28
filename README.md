@@ -15,6 +15,10 @@ Windows 桌面工具。在本机识别公益频道的直播画面，推荐检查
 
 直播预览和手动截图在本机内存中识别。WebView2 在本机保存网页登录会话。提交申请时，指令中的 Bungie ID 会出现在所选频道的聊天中。
 
+## 自动更新
+
+每次启动时，便携版会检查项目的 GitHub Releases。发现新版会自动下载、校验并启动新版。检查或下载失败时会继续打开本机版本。安装目录需要有当前用户的写入权限，频道设置和 Twitch 登录仍保存在用户目录。旧便携包需要先手动解压一次支持自动更新的版本。 [Windows 发布页](https://github.com/WJ1752/destiny2-checkpoint-console/releases/latest)
+
 ## 从源码运行与验证
 
 截图与直播预览识别要求 Windows。内嵌直播要求 Microsoft Edge WebView2 Runtime。便携包包含 Node.js。

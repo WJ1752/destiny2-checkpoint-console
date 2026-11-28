@@ -3,7 +3,9 @@ param(
     [string]$Configuration = 'Release',
     [string]$RuntimeIdentifier = 'win-x64',
     [string]$NodeVersion = '22.23.3',
-    [string]$OutputDirectory = 'release'
+    [string]$OutputDirectory = 'release',
+    [ValidatePattern('\A[0-9]{1,5}(\.[0-9]{1,5}){3}\z')]
+    [string]$Version = '1.0.0.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,6 +18,7 @@ $runtimeStage = Join-Path $release 'runtime'
 $nodeZip = Join-Path ([IO.Path]::GetTempPath()) "node-v$NodeVersion-win-x64.zip"
 $nodeRoot = Join-Path ([IO.Path]::GetTempPath()) "d2-node-v$NodeVersion-win-x64"
 
+if (($Version -split '\.') | Where-Object { [int]$_ -gt 65534 }) { throw 'Each version component must be at most 65534.' }
 if ($RuntimeIdentifier -ne 'win-x64') { throw 'Only the Windows x64 release target is supported.' }
 $expectedRoot = [IO.Path]::GetFullPath($repo + [IO.Path]::DirectorySeparatorChar)
 if ($release.Equals($repo, [StringComparison]::OrdinalIgnoreCase) -or -not $release.StartsWith($expectedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "OutputDirectory must name a project subdirectory, not a path outside the project: $release" }
@@ -103,7 +106,8 @@ if (Test-Path -LiteralPath $webViewPackage) {
         if (Test-Path -LiteralPath $path) { Copy-Item -LiteralPath $path -Destination $webViewLicenseTarget -Force }
     }
 }
-& $dotnetExe publish $launcherProject -c $Configuration -r $RuntimeIdentifier --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:IncludeSymbols=false -p:DebugType=None -o $release
+$versionProperties = @("-p:Version=$Version", "-p:AssemblyVersion=$Version", "-p:FileVersion=$Version")
+& $dotnetExe publish $launcherProject -c $Configuration -r $RuntimeIdentifier --self-contained true @versionProperties -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:IncludeSymbols=false -p:DebugType=None -o $release
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE" }
 $exe = Join-Path $release 'D2Checkpoint.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw "Launcher binary was not produced: $exe" }
