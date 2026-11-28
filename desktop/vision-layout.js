@@ -7,9 +7,14 @@ const BOARD_BOTTOM = 0.62;
 const ROW_TOLERANCE = 0.007;
 const COLUMN_INSET = 0.008;
 const BODY_COLUMN_INSET = 0.03;
+const ENCOUNTER_PATTERNS = new WeakMap();
 
 function headerText(value) {
   return value.normalize('NFKC').toLowerCase().replace(/[iı|]/g, 'l').replace(/0/g, 'o').replace(/[^a-z0-9]/g, '');
+}
+
+function normalizedText(value) {
+  return String(value || '').toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function hasCheckpointBoard(words) {
@@ -108,14 +113,70 @@ function rowHeaders(row, aliases) {
   return candidates;
 }
 
-function hasEncounterBelow(rows, heading, activity) {
-  const [header] = heading.headers;
-  const aliases = activity.encounters.flatMap(encounter => encounter.aliases || []).map(headerText).filter(Boolean);
+function encounterPatterns(encounters) {
+  const existing = ENCOUNTER_PATTERNS.get(encounters);
+  if (existing) return existing;
+  const patterns = encounters.flatMap(entry => (entry.aliases || []).flatMap(alias => {
+    const key = normalizedText(alias.normalize('NFKC'));
+    if (!key || /^\d+$/.test(key)) return [];
+    const characters = Array.from(key).join('[\\s\\p{P}]*');
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d{1,2}\\s*[-:.]?\\s*)?${characters}(?![\\p{L}\\p{N}])`, 'giu');
+    return [{ entry, pattern, length: key.length }];
+  }));
+  ENCOUNTER_PATTERNS.set(encounters, patterns);
+  return patterns;
+}
+
+function isMasterSuffix(text) {
+  return /^[\s\p{P}]*(?:master|m|大师)(?![\p{L}\p{N}])/iu.test(text);
+}
+
+function readEncounterLine(line, encounters) {
+  if (!encounters.length) return [];
+  const text = line.text.normalize('NFKC');
+  const occurrences = [];
+  for (const { entry, pattern, length } of encounterPatterns(encounters)) {
+    for (const match of text.matchAll(pattern)) {
+      occurrences.push({ entry, length, start: match.index, end: match.index + match[0].length });
+    }
+  }
+  // Prefer complete aliases at the same position, while retaining other labels on the row.
+  occurrences.sort((left, right) => right.length - left.length || left.start - right.start);
+  const selected = [];
+  for (const match of occurrences) {
+    if (selected.every(other => match.end <= other.start || match.start >= other.end)) selected.push(match);
+  }
+  selected.sort((left, right) => left.start - right.start);
+  if (selected.length) return selected.map(({ entry, end }, i) => ({
+    entry, master: isMasterSuffix(text.slice(end, selected[i + 1]?.start))
+  }));
+
+  const slot = /^\s*(?:encounter\s+)?(\d{1,2})([\s\p{P}]*(?:master|normal|[mn]|大师|普通)?[\s\p{P}]*)$/iu.exec(text);
+  const entry = slot && encounters.find(item => item.aliases?.includes(slot[1]));
+  return entry ? [{ entry, master: isMasterSuffix(slot[2]) }] : [];
+}
+
+function sectionBottom(row, nextRow, hasBoard) {
+  const bottom = nextRow ? nextRow.y - 0.012 : BOARD_BOTTOM;
+  return hasBoard && nextRow ? bottom : Math.min(bottom, row.y + 0.175);
+}
+
+function columnBounds(header, nextX = BOARD_RIGHT) {
+  const left = Math.max(0, header.x - COLUMN_INSET);
+  const naturalWidth = header.key.length > 4 ? 0.24 : 0.165;
+  const right = Math.min(nextX - COLUMN_INSET, Math.max(header.endX + COLUMN_INSET, header.x + naturalWidth));
+  return { left, right };
+}
+
+function hasEncounterBelow(rows, heading, bottom, encounters) {
+  const { left, right } = columnBounds(heading.headers[0]);
   return rows.some(row => {
-    const offset = row.y - heading.y;
-    if (offset < 0.014 || offset > 0.061) return false;
-    const line = row.words.filter(word => word.x >= header.x - COLUMN_INSET && word.x <= header.x + 0.12).map(word => word.textKey).join('');
-    return aliases.some(alias => alias.length > 2 ? line.includes(alias) : line === alias);
+    if (row.y < heading.y + 0.014 || row.y >= bottom) return false;
+    const text = row.words.filter(word => {
+      const centerX = (word.x + word.end) / 2;
+      return centerX >= left && centerX <= right;
+    }).map(word => word.text).join(' ');
+    return readEncounterLine({ text }, encounters).length > 0;
   });
 }
 
@@ -140,9 +201,8 @@ function uniqueEncounterSignatures(activities, activityAliases) {
 
 // A short title can disappear at stream quality. Recover its column only when
 // two separate body lines align and both labels uniquely identify that activity.
-function recoverColumns(rows, row, nextRow, signatures) {
+function recoverColumns(rows, row, bottom, signatures) {
   const recovered = [];
-  const bottom = Math.min(BOARD_BOTTOM, (nextRow?.y ?? 0.78) - 0.012, row.y + 0.175);
   for (const body of rows) {
     if (body.y < row.y + 0.014 || body.y >= bottom) continue;
     for (let index = 0; index < body.words.length; index += 1) {
@@ -178,25 +238,23 @@ function layoutSections(words, ocrWidth, ocrHeight, activities, channel) {
   const hasBoard = hasCheckpointBoard(words);
   const aliases = activityHeaders(activities, hasBoard, channel);
   const detected = rows.map(row => ({ y: row.y, headers: rowHeaders(row, aliases) })).filter(row => row.headers.length > 0);
-  const majorRows = detected.filter(row => row.headers.length > 1);
-  const headings = detected.filter(row => {
-    if (row.headers.length > 1) return true;
-    if (majorRows.some(major => Math.abs(major.y - row.y) < 0.065)) return false;
-    return hasEncounterBelow(rows, row, activities[row.headers[0].activityId]);
-  });
+  const headings = [];
+  for (let index = detected.length - 1; index >= 0; index -= 1) {
+    const row = detected[index];
+    const bottom = sectionBottom(row, headings.at(-1), hasBoard);
+    if (row.headers.length > 1 || hasEncounterBelow(rows, row, bottom, activities[row.headers[0].activityId].encounters)) {
+      headings.push({ ...row, bottom });
+    }
+  }
   const signatures = hasBoard ? uniqueEncounterSignatures(activities, aliases) : null;
-  return headings.flatMap((row, index) => {
+  return headings.reverse().flatMap(row => {
     const top = Math.max(0, row.y - 0.015);
-    const bottom = Math.min(BOARD_BOTTOM, (headings[index + 1]?.y ?? 0.78) - 0.012, row.y + 0.175);
-    const headers = signatures ? recoverColumns(rows, row, headings[index + 1], signatures) : row.headers;
+    const headers = signatures ? recoverColumns(rows, row, row.bottom, signatures) : row.headers;
     return headers.map((header, column) => {
-      const left = Math.max(0, header.x - COLUMN_INSET);
-      const next = headers[column + 1]?.x ?? BOARD_RIGHT;
-      const naturalWidth = header.key.length > 4 ? 0.24 : 0.165;
-      const right = Math.min(next - COLUMN_INSET, Math.max(header.endX + COLUMN_INSET, header.x + naturalWidth));
-      return { activityId: header.activityId, headerAliases: [header.text, header.label], headerY: row.y, box: [left, top, right - left, bottom - top] };
+      const { left, right } = columnBounds(header, headers[column + 1]?.x);
+      return { activityId: header.activityId, headerAliases: [header.text, header.label], headerY: row.y, box: [left, top, right - left, row.bottom - top] };
     });
   });
 }
 
-module.exports = { hasCheckpointBoard, layoutSections };
+module.exports = { hasCheckpointBoard, layoutSections, normalizedText, readEncounterLine };

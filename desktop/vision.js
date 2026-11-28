@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { layoutSections } = require('./vision-layout');
+const { layoutSections, normalizedText, readEncounterLine } = require('./vision-layout');
 const { CHANNELS } = require('./checkpoint-sources');
 
 const DATA_PATH = path.join(__dirname, 'vision-data.json');
@@ -12,7 +12,6 @@ const UNKNOWN_QUEUE = Object.freeze({ queueLength: null, queueStatus: null });
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const OCR_TIMEOUT_MS = 20000;
-const ENCOUNTER_PATTERNS = new WeakMap();
 const QUEUE_STATUS = /^(?:(?<closed>(?:closed|paused|disabled|not\s+open)\b|已?\s*(?:关闭|關閉|暂停|暫停))|(?:open|opened)\b|已?\s*(?:开放|開放))(?=\s*(?:$|[\p{P}\d]))/iu;
 
 function result(recognized, queue, reports) {
@@ -35,10 +34,6 @@ function resolveProfile(channel) {
     if ((profile.channels || []).some((item) => canonicalChannel(item) === id)) return { name, profile };
   }
   return { name: 'unknown', profile: DATA.profiles.unknown };
-}
-
-function normalizedText(value) {
-  return String(value || '').toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function checkpointNames(activityId, encounterCode) {
@@ -135,49 +130,6 @@ function headerAlias(line, aliases) {
   return null;
 }
 
-function encounterPatterns(encounters) {
-  const existing = ENCOUNTER_PATTERNS.get(encounters);
-  if (existing) return existing;
-  const patterns = encounters.flatMap(entry => (entry.aliases || []).flatMap(alias => {
-    const key = normalizedText(alias.normalize('NFKC'));
-    if (!key || /^\d+$/.test(key)) return [];
-    const characters = Array.from(key).join('[\\s\\p{P}]*');
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d{1,2}\\s*[-:.]?\\s*)?${characters}(?![\\p{L}\\p{N}])`, 'giu');
-    return [{ entry, pattern, length: key.length }];
-  }));
-  ENCOUNTER_PATTERNS.set(encounters, patterns);
-  return patterns;
-}
-
-function isMasterSuffix(text) {
-  return /^[\s\p{P}]*(?:master|m|大师)(?![\p{L}\p{N}])/iu.test(text);
-}
-
-function readEncounterLine(line, encounters) {
-  if (!encounters.length) return [];
-  const text = line.text.normalize('NFKC');
-  const occurrences = [];
-  for (const { entry, pattern, length } of encounterPatterns(encounters)) {
-    for (const match of text.matchAll(pattern)) {
-      occurrences.push({ entry, length, start: match.index, end: match.index + match[0].length });
-    }
-  }
-  // Prefer complete aliases at the same position, while retaining other labels on the row.
-  occurrences.sort((left, right) => right.length - left.length || left.start - right.start);
-  const selected = [];
-  for (const match of occurrences) {
-    if (selected.every(other => match.end <= other.start || match.start >= other.end)) selected.push(match);
-  }
-  selected.sort((left, right) => left.start - right.start);
-  if (selected.length) return selected.map(({ entry, end }, i) => ({
-    entry, master: isMasterSuffix(text.slice(end, selected[i + 1]?.start))
-  }));
-
-  const slot = /^\s*(?:encounter\s+)?(\d{1,2})([\s\p{P}]*(?:master|normal|[mn]|大师|普通)?[\s\p{P}]*)$/iu.exec(text);
-  const entry = slot && encounters.find(item => item.aliases?.includes(slot[1]));
-  return entry ? [{ entry, master: isMasterSuffix(slot[2]) }] : [];
-}
-
 function queueLine(text) {
   const line = text.normalize('NFKC').trim();
   const waiting = /^(\d,\d{3}|\d{1,4})\s+(?:(?:players?|people)\s+)?(?:in\s+(?:the\s+)?queue|queued)\b/i.exec(line);
@@ -219,20 +171,32 @@ function parseOcrResult(ocrResult, options = {}) {
   const queue = extractQueue(ocrResult.words, regionSet.queue, ocrResult.width, ocrResult.height);
   const dynamicSections = options.isScreenshot === true ? [] :
     layoutSections(ocrResult.words, ocrResult.width, ocrResult.height, DATA.activities, canonicalChannel(options.channel));
+  const dynamicCells = dynamicSections.map(section => {
+    const [x, y, width, height] = section.box;
+    return { section, cell: getRect({ x, y, width, height }, ocrResult.width, ocrResult.height) };
+  });
+  const listWidth = listRect.right - listRect.left;
+  const listHeight = listRect.bottom - listRect.top;
+  const fallbackCells = (profile.sections || []).map(section => {
+    const [x, y, width, height] = section.box;
+    const cell = {
+      left: listRect.left + x * listWidth,
+      top: listRect.top + y * listHeight,
+      right: listRect.left + (x + width) * listWidth,
+      bottom: listRect.top + (y + height) * listHeight
+    };
+    return { section, cell };
+  });
+  // Fixed cells can fill gaps, but their old boundaries can overlap moved columns.
+  const fallbackWords = dynamicCells.length ? wordsInList.filter(word =>
+    !dynamicCells.some(({ cell }) => isInside(word, cell, ocrResult.width, ocrResult.height))) : wordsInList;
   const sectionsSeen = new Set();
   const reports = [];
   const progressKeys = new Set();
 
-  for (const section of dynamicSections.length ? dynamicSections : profile.sections || []) {
-    const [x, y, sectionWidth, sectionHeight] = section.box;
+  for (const { section, cell } of [...dynamicCells, ...fallbackCells]) {
     const dynamic = Number.isFinite(section.headerY);
-    const cell = dynamic ? getRect({ x, y, width: sectionWidth, height: sectionHeight }, ocrResult.width, ocrResult.height) : {
-      left: listRect.left + x * (listRect.right - listRect.left),
-      top: listRect.top + y * (listRect.bottom - listRect.top),
-      right: listRect.left + (x + sectionWidth) * (listRect.right - listRect.left),
-      bottom: listRect.top + (y + sectionHeight) * (listRect.bottom - listRect.top)
-    };
-    const lines = wordLines(wordsInList, cell, ocrResult.width, ocrResult.height);
+    const lines = wordLines(dynamic ? wordsInList : fallbackWords, cell, ocrResult.width, ocrResult.height);
     const matchedHeader = dynamic ? null : lines.find(line => headerAlias(line, section.headerAliases) !== null);
     if (!dynamic && !matchedHeader) continue;
     sectionsSeen.add(section);

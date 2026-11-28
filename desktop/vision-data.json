@@ -192,7 +192,8 @@
       "encounters": [
         { "encounter": "卡鲁斯", "nameSource": "O:716040604", "encounterCode": "Calus", "aliases": ["Calus"] },
         { "encounter": "摩格斯", "nameSource": "O:716040605", "encounterCode": "Morgeth", "aliases": ["Morgeth"] },
-        { "encounter": "暴动首领", "nameSource": "O:716040606", "encounterCode": "InsurrectionPrime", "aliases": ["Insurrection Prime", "InsurrectionPrime"] }
+        { "encounter": "暴动首领", "nameSource": "O:716040606", "encounterCode": "InsurrectionPrime", "aliases": ["Insurrection Prime", "InsurrectionPrime", "lnsurrectionPrime"] },
+        { "encounter": "崇圣首脑", "nameSource": "https://www.bungie.net/7/zh-chs/News/Article/destiny_2_update_9_7_0_3", "encounterCode": "ConsecratedMind", "aliases": ["Consecrated Mind"] }
       ]
     },
     "gardenSalvation": {
@@ -223,7 +224,8 @@
     "pCalus": {
       "activity": "众神殿", "nameSource": "A:1516551982", "activityCode": "P-Calus", "aliases": ["P-Calus"],
       "encounters": [
-        { "encounter": "卡鲁斯", "nameSource": "O:716040604", "encounterCode": "Calus", "aliases": ["Calus"] }
+        { "encounter": "卡鲁斯", "nameSource": "O:716040604", "encounterCode": "Calus", "aliases": ["Calus"] },
+        { "encounter": "加尔兰", "nameSource": "O:716040602", "encounterCode": "Gahlran", "aliases": ["Gahlran"] }
       ]
     },
     "pMorgeth": {
@@ -285,7 +287,7 @@
       "encounters": [
         { "encounter": "德瑞捷·赛尔", "nameSource": "R:3422590101", "encounterCode": "Boss", "aliases": ["Boss", "Sere"] },
         { "encounter": "哈罗", "nameSource": "O:2439222970", "encounterCode": "Harrow", "aliases": ["Harrow"] },
-        { "encounter": "隐藏宝箱", "nameSource": "R:734490740", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2"] }
+        { "encounter": "隐藏宝箱", "nameSource": "R:734490740", "encounterCode": "Chest2", "aliases": ["Chest2", "Ches2", "Chest 2", "hest2æ", "héSt2E"] }
       ]
     }
   },

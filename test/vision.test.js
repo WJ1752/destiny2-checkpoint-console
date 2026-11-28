@@ -118,3 +118,48 @@ test('checkpoint labels prefer the complete encounter and preserve difficulty ma
   assert.equal(output.reports[0].encounterCode, 'PostTemplar');
   assert.equal(output.reports[0].difficultyCode, 'M');
 });
+
+function thumbnailWord(text, x, y, width = 0.04) {
+  return { text, x, y, width, height: 0.014 };
+}
+
+test('reads a moved single-column live board with a gap above its first checkpoint', () => {
+  const output = vision.parseOcrResult(syntheticOcr([
+    thumbnailWord('KF', 0.38, 0.13), thumbnailWord('Oryx', 0.38, 0.205)
+  ]), { channel: 'd2checkpoints' });
+  assert.equal(output.recognized, true);
+  assert.deepEqual(output.reports.map(({ activityId, encounterCode }) => [activityId, encounterCode]), [['kingsFall', 'Oryx']]);
+});
+
+test('reads a corroborated single activity row close below a multi-column row', () => {
+  const output = vision.parseOcrResult(syntheticOcr([
+    thumbnailWord('KF', 0.04, 0.11), thumbnailWord('RoN', 0.18, 0.11),
+    thumbnailWord('Oryx', 0.04, 0.137), thumbnailWord('Nezarec', 0.18, 0.137),
+    thumbnailWord('VH', 0.04, 0.16), thumbnailWord('Boss', 0.04, 0.186)
+  ]), { channel: 'd2chests' });
+  assert.deepEqual(output.reports.map(({ activityId, encounterCode }) => [activityId, encounterCode]), [
+    ['kingsFall', 'Oryx'], ['rootNightmares', 'Nezarec'], ['vespersHost', 'Boss']
+  ]);
+});
+
+test('reads fixed cells outside the dynamic columns in the same live board', () => {
+  const output = vision.parseOcrResult(syntheticOcr([
+    thumbnailWord('KF', 0.04, 0.11), thumbnailWord('Oryx', 0.04, 0.14),
+    thumbnailWord('E', 0.19, 0.605, 0.01), thumbnailWord('Boss', 0.19, 0.627)
+  ]), { channel: 'd2checkpoints' });
+  assert.deepEqual(output.reports.map(({ activityId, encounterCode }) => [activityId, encounterCode]), [
+    ['kingsFall', 'Oryx'], ['eaterWorlds', 'Boss']
+  ]);
+});
+
+test('reads the new Pantheon progress and the last line of a tall board section', () => {
+  const output = vision.parseOcrResult(syntheticOcr([
+    thumbnailWord('Checkpoint List', 0.05, 0.049, 0.29),
+    thumbnailWord('P-Insurrection', 0.04, 0.12, 0.098), thumbnailWord('P-Calus', 0.31, 0.12, 0.053),
+    thumbnailWord('Gahlran', 0.31, 0.145), thumbnailWord('ConsecratedMind', 0.04, 0.302, 0.089),
+    thumbnailWord('KF', 0.04, 0.34), thumbnailWord('RoN', 0.18, 0.34)
+  ]), { channel: 'd2checkpoints' });
+  assert.deepEqual(output.reports.map(({ activityId, encounterCode }) => [activityId, encounterCode]), [
+    ['pInsurrection', 'ConsecratedMind'], ['pCalus', 'Gahlran']
+  ]);
+});

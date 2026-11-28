@@ -465,6 +465,15 @@ test('桌面 HTTP 合约：会话握手、按频道双帧确认、申请预览�
         'an early observation must stay visible after later scans even when its confirmation has expired');
       assert.ok(finished.reports.find(item => item.id === bReport.id).freshnessPercent > 0);
       assert.equal((await postJson('/api/queue/preview', { reportId: earlyReport.id, bungieId })).status, 409);
+
+      const capture = frame => httpRequest(port, autoReadPath, 'POST', { Cookie: cookie, Origin: origin, 'Content-Type': 'image/png' }, frame);
+      const refreshed = await capture(secondA);
+      assert.equal(refreshed.status, 200);
+      const refreshedScan = JSON.parse(refreshed.body);
+      assert.equal(refreshedScan.duplicate, false, 'an expired fingerprint must let a current capture start a new confirmation');
+      assert.deepEqual([refreshedScan.reports[0].id, refreshedScan.reports[0].status], [earlyReport.id, 'candidate']);
+      assert.equal(JSON.parse((await capture(secondA)).body).duplicate, true);
+      assert.equal(JSON.parse((await capture(firstA)).body).reports[0].status, 'available');
     } finally {
       Date.now = realNow;
     }

@@ -492,7 +492,7 @@ async function scanScreen(loginValue, image, { isScreenshot = true, active = () 
       channel.queueStatusAt = null;
       queueObservations.delete(login);
     }
-  if (channel.lastFingerprint === fingerprint) return { login, duplicate: true, recognized: false, ...queueFor(channel),
+  if (channel.lastFingerprint === fingerprint && freshnessFor(channel.lastFrameAt).fresh) return { login, duplicate: true, recognized: false, ...queueFor(channel),
     reports: reports.filter(report => report.login === login && reportFresh(report)), message: '画面没有变化；等待播放画面更新后再识别。' };
   const result = await recognizeImage(image, { channel: login, isScreenshot });
   if (!active()) return { login, duplicate: false, recognized: false };

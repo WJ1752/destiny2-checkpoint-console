@@ -544,6 +544,10 @@ async function recognizeChannelFrames(batch, login, frames, reading) {
     }
   }
 }
+function confirmedProgressCount(reading) {
+  return (reading.latestScan?.reports || []).filter(report =>
+    report.status === 'available' && reading.seen.has(observedProgressKey(report))).length;
+}
 function summarizeProgressReading(reading) {
   const { latestScan, seen } = reading;
   const details = reading.error || (reading.repeated ? '有画面重复' : '');
@@ -551,7 +555,7 @@ function summarizeProgressReading(reading) {
     const messages = [reading.note, details].filter(Boolean);
     return { message: messages.join(' · ') || '未收到可识别画面。', error: Boolean(reading.error || !reading.repeated) };
   }
-  const confirmed = (latestScan.reports || []).filter(report => report.status === 'available' && seen.has(observedProgressKey(report))).length;
+  const confirmed = confirmedProgressCount(reading);
   const outcome = seen.size ? `读到 ${seen.size} 条进度，已确认 ${confirmed} 条` : '未识别到进度';
   const quality = seen.size < 2 && reading.frameHeight > 0 && reading.frameHeight < 720 ? `画面最高 ${reading.frameHeight}p` : '';
   return { message: [outcome, queueLabel(latestScan), quality, reading.note, details].filter(Boolean).join(' · '), error: false };
@@ -583,8 +587,12 @@ async function startProgressRead(automatic = false) {
         interrupted = response.interrupted === true;
         const message = typeof response.message === 'string' ? response.message.trim() : '';
         reading.note = interrupted || frames.length < 2 ? message || (frames.length ? '只取到一张画面' : '没有获得直播画面。') : '';
-        if (frames.length) await recognizeChannelFrames(batch, item.login, frames, reading);
-        if (automatic || attempt > 0 || interrupted || batch.cancelled || !reading.latestScan || reading.seen.size >= 2 || reading.error) break;
+        if (frames.length) {
+          reading.error = '';
+          await recognizeChannelFrames(batch, item.login, frames, reading);
+        }
+        if (automatic || attempt > 0 || interrupted || batch.cancelled || !frames.length ||
+            (reading.seen.size > 0 && confirmedProgressCount(reading) === reading.seen.size)) break;
         item.message = '正在同一频道重新取样…';
         renderProgressRead();
       }
