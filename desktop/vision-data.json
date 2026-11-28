@@ -138,7 +138,7 @@
         { "encounter": "守塔人，摩格斯", "nameSource": "O:134011688", "encounterCode": "Morgeth", "aliases": ["Morgeth"] },
         { "encounter": "保险箱", "nameSource": "O:134011689", "encounterCode": "Vault", "aliases": ["Vault"] },
         { "encounter": "千语魅痕", "nameSource": "O:134011694", "encounterCode": "Riven", "aliases": ["Riven"] },
-        { "encounter": null, "encounterCode": "PostShuroChi", "aliases": ["Post Shuro-Chi", "Post Shuro Chi"] },
+        { "encounter": "秋露·知之后", "encounterCode": "PostShuroChi", "aliases": ["Post Shuro-Chi", "Post Shuro Chi"] },
         { "encounter": "秋露·知", "nameSource": "O:134011691", "encounterCode": "ShuroChi", "aliases": ["Shuro-Chi", "Shuro Chi"] },
         { "encounter": "女王大道", "nameSource": "A:43862588", "encounterCode": "Queenswalk", "aliases": ["Queenswalk", "Queens Walk"] },
         { "encounter": "秋露·知", "nameSource": "O:134011691", "encounterCode": "2", "aliases": ["2"] },

@@ -41,12 +41,12 @@ function checkpointNames(activityId, encounterCode) {
   const code = normalizedText(encounterCode);
   const encounter = activity?.encounters.find((entry) => normalizedText(entry.encounterCode) === code);
   const activityName = activity?.nameSource ? activity.activity : null;
-  const encounterName = encounter?.nameSource ? encounter.encounter : null;
+  const encounterName = encounter?.encounter;
   return {
     activityId,
     activity: activityName || '未核实的活动名称',
     encounter: encounterName || encounter?.aliases?.[0] || '未核实的进度节点',
-    officialName: Boolean(activityName && encounterName)
+    officialName: Boolean(activityName && encounterName && encounter.nameSource)
   };
 }
 

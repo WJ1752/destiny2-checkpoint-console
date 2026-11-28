@@ -53,6 +53,9 @@ test('SoloRaidsBot layout accepts full activity names and numbered encounters', 
     word('of', 0.08, 0.49),
     word('Glass', 0.11, 0.49),
     word('3-Templar', 0.02, 0.56),
+    word('Last Wish', 0.22, 0.49, 0.11),
+    word('0 Post Shuro-Chi', 0.22, 0.55, 0.15),
+    word('2 Shuro-Chi', 0.22, 0.61, 0.11),
     word('Queue', 1.08, 0.07),
     word('(0)', 1.14, 0.07)
   ];
@@ -62,7 +65,9 @@ test('SoloRaidsBot layout accepts full activity names and numbered encounters', 
   assert.deepEqual(output.reports, [
     { activityId: 'kingsFall', officialName: true, activity: '国王的陨落', activityCode: 'KF', encounter: '高尔格罗斯', encounterCode: 'Golgoroth', difficulty: '普通', difficultyCode: 'N' },
     { activityId: 'kingsFall', officialName: true, activity: '国王的陨落', activityCode: 'KF', encounter: '欧里克斯', encounterCode: 'Oryx', difficulty: '大师', difficultyCode: 'M' },
-    { activityId: 'vaultGlass', officialName: true, activity: '玻璃拱顶', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' }
+    { activityId: 'vaultGlass', officialName: true, activity: '玻璃拱顶', activityCode: 'VoG', encounter: '圣堂武士', encounterCode: 'Templar', difficulty: '普通', difficultyCode: 'N' },
+    { activityId: 'lastWish', officialName: false, activity: '最后一愿', activityCode: 'LW', encounter: '秋露·知之后', encounterCode: 'PostShuroChi', difficulty: '普通', difficultyCode: 'N' },
+    { activityId: 'lastWish', officialName: true, activity: '最后一愿', activityCode: 'LW', encounter: '秋露·知', encounterCode: 'ShuroChi', difficulty: '普通', difficultyCode: 'N' }
   ]);
 });
 
